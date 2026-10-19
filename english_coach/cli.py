@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import Settings, date_str, parse_date
 from .db import Database
 from .github_sync import create_repo, enable_pages, get_github_user, pages_url, sync_repo
-from .lesson import github_lesson_url, load_private_lesson, pages_lesson_url, prepare_lesson, push_lesson
+from .lesson import github_lesson_url, load_private_lesson, pages_lesson_url, prepare_lesson, push_lesson, rerender_lesson
 from .notify import Notifier
 from .quiz import answer as quiz_answer
 from .quiz import checkin as quiz_checkin
@@ -70,6 +70,12 @@ def cmd_prepare(args):
     url = pages_lesson_url(db, settings, payload["date"])
     if url:
         print("pages: %s" % url)
+
+
+def cmd_rerender(args):
+    settings, db = context()
+    payload = rerender_lesson(settings, db, day=_day(args.date), sync=not args.no_sync)
+    print("rerendered: %s" % payload["date"])
 
 
 def cmd_push(args):
@@ -278,6 +284,11 @@ def build_parser():
     q.add_argument("--force", action="store_true")
     q.add_argument("--no-sync", action="store_true")
     q.set_defaults(func=cmd_prepare)
+
+    q = sub.add_parser("rerender")
+    q.add_argument("--date")
+    q.add_argument("--no-sync", action="store_true")
+    q.set_defaults(func=cmd_rerender)
 
     q = sub.add_parser("push")
     q.add_argument("--date")

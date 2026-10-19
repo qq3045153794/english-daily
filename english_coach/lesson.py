@@ -175,7 +175,7 @@ def _bold_words(text: str, words: List[str]) -> str:
     for word in sorted(set(w.lower() for w in words), key=len, reverse=True):
         # Avoid bolding text that is already bolded.
         pattern = re.compile(r"(?<!\*)\b" + re.escape(word) + r"\b(?!\*)", re.I)
-        text = pattern.sub("**%s**" % word, text)
+        text = pattern.sub(lambda m: "**%s**" % m.group(0), text)
     return text
 
 
@@ -359,6 +359,30 @@ def github_lesson_url(db: Database, day: str) -> str:
         repo = remote[:-4]
         return repo + "/blob/main/lessons/%s.md" % day
     return ""
+
+
+def rerender_lesson(settings: Settings, db: Database, day: Optional[str] = None, sync: bool = True) -> Dict[str, Any]:
+    day = day or date_str()
+    payload = load_private_lesson(settings, day)
+    cards = payload.get("words", [])
+    from .stats import calculate_stats
+    stats = calculate_stats(db)
+    md = render_markdown(day, cards, payload, stats)
+    md_path = settings.md_dir / ("%s.md" % day)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(md, encoding="utf-8")
+    html_path = settings.lessons_dir / ("%s.html" % day)
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    html_path.write_text(page_html("%s 英语学习" % day, md, include_speak=True, home_href="../"), encoding="utf-8")
+    db.upsert_lesson(day, str(md_path), str(settings.private_lessons / ("%s.json" % day)), status="prepared")
+    render_index(db, settings)
+    if sync:
+        try:
+            from .github_sync import sync_repo
+            sync_repo(settings, "rerender: %s" % day, push=True, db=db)
+        except Exception as exc:
+            db.log("sync_error", str(exc))
+    return payload
 
 
 def push_message(db: Database, settings: Settings, payload: Dict[str, Any]) -> str:
