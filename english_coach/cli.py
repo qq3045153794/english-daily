@@ -66,7 +66,7 @@ def cmd_prepare(args):
     payload = prepare_lesson(settings, db, day=_day(args.date), force=args.force, sync=not args.no_sync)
     print("lesson prepared: %s" % payload["date"])
     print("words: %d" % len(payload.get("words", [])))
-    print("markdown: %s" % (settings.lessons_dir / (payload["date"] + ".md")))
+    print("markdown: %s" % (settings.md_dir / (payload["date"] + ".md")))
     url = pages_lesson_url(db, settings, payload["date"])
     if url:
         print("pages: %s" % url)
