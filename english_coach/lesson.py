@@ -183,12 +183,6 @@ def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[st
     reading = data.get("reading", {}) if isinstance(data.get("reading"), dict) else {}
     words = [c["word"] for c in cards]
     lines = [
-        "---",
-        "layout: default",
-        'title: "%s 英语学习"' % lesson_date,
-        "date: %s" % lesson_date,
-        "---",
-        "",
         "# %s 英语学习" % lesson_date,
         "",
         "> 今日 **%d** 词 · 阅读约 20 分钟 · 学习完成后在 Telegram 回复 **打卡**，训练会立即开始。" % len(cards),
