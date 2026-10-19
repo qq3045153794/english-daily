@@ -61,7 +61,7 @@ def _askpass(settings: Settings) -> Path:
 def sync_repo(settings: Settings, message: str, push: bool = True, db: Any = None) -> Dict[str, Any]:
     repo = settings.repo
     _ensure_repo(repo)
-    add_paths = [p.name for p in [repo / "docs", repo / "english_coach", repo / "scripts", repo / "tests", repo / "deploy", repo / ".github", repo / "data", repo / "README.md", repo / ".gitignore"] if p.exists()]
+    add_paths = [p.name for p in [repo / "docs", repo / "english_coach", repo / "scripts", repo / "tests", repo / "deploy", repo / ".github", repo / "data", repo / "README.md", repo / "requirements.txt", repo / ".gitignore"] if p.exists()]
     if not add_paths:
         return {"ok": False, "reason": "nothing to sync"}
     _run(["git", "add", "-A"] + add_paths, repo, check=True)

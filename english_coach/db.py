@@ -117,7 +117,7 @@ DEFAULTS = {
     "quiz_dictation_count": "4",
     "push_time": "20:30",
     "prepare_time": "19:40",
-    "telegram_chat_id": "",
+    "telegram_chat_id": "8425641024",
     "pages_url": "",
     "github_remote": "",
     "tts_voice": "en-US-AriaNeural",

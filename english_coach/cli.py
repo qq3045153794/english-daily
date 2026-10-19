@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import Settings, date_str, parse_date
 from .db import Database
 from .github_sync import create_repo, enable_pages, get_github_user, pages_url, sync_repo
-from .lesson import load_private_lesson, pages_lesson_url, prepare_lesson, push_lesson
+from .lesson import github_lesson_url, load_private_lesson, pages_lesson_url, prepare_lesson, push_lesson
 from .notify import Notifier
 from .quiz import answer as quiz_answer
 from .quiz import checkin as quiz_checkin
@@ -91,6 +91,9 @@ def cmd_show(args):
     url = pages_lesson_url(db, settings, day)
     if url:
         print("Pages：%s" % url)
+    gh_url = github_lesson_url(db, day)
+    if gh_url:
+        print("GitHub：%s" % gh_url)
     print("已打卡：%s" % ("是" if lesson["checked_in_at"] else "否"))
     if lesson["quiz_completed_at"]:
         print("训练：已完成 %.1f/%.1f" % (float(lesson["quiz_score"]), float(lesson["quiz_total"])))

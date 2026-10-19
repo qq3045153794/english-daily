@@ -359,6 +359,14 @@ def pages_lesson_url(db: Database, settings: Settings, day: str) -> str:
     return ""
 
 
+def github_lesson_url(db: Database, day: str) -> str:
+    remote = db.setting("github_remote", "").strip()
+    if remote.startswith("https://github.com/") and remote.endswith(".git"):
+        repo = remote[:-4]
+        return repo + "/blob/main/docs/lessons/%s.md" % day
+    return ""
+
+
 def push_message(db: Database, settings: Settings, payload: Dict[str, Any]) -> str:
     day = payload["date"]
     cards = payload.get("words", [])
@@ -374,9 +382,12 @@ def push_message(db: Database, settings: Settings, payload: Dict[str, Any]) -> s
         "阅读：%s" % (payload.get("reading", {}) or {}).get("title", "今日阅读"),
     ]
     if url:
-        lines.append("👉 打开学习页：%s" % url)
-    else:
-        lines.append("👉 学习内容稍后同步到 GitHub Pages")
+        lines.append("👉 Pages：%s" % url)
+    gh_url = github_lesson_url(db, day)
+    if gh_url:
+        lines.append("📄 GitHub MD：%s" % gh_url)
+    if not url and not gh_url:
+        lines.append("👉 学习内容稍后同步到 GitHub")
     lines.extend(["", "学习完成后回复：打卡"])
     return "\n".join(lines)
 
