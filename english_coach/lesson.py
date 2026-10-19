@@ -361,6 +361,22 @@ def pages_lesson_url(db: Database, settings: Settings, day: str) -> str:
     return ""
 
 
+def raw_preview_url(db: Database, day: str) -> str:
+    remote = db.setting("github_remote", "").strip()
+    if remote.startswith("https://github.com/") and remote.endswith(".git"):
+        slug = remote[len("https://github.com/"):-4]
+        return "https://raw.githack.com/%s/main/docs/lessons/%s.html" % (slug, day)
+    return ""
+
+
+def raw_preview_index_url(db: Database) -> str:
+    remote = db.setting("github_remote", "").strip()
+    if remote.startswith("https://github.com/") and remote.endswith(".git"):
+        slug = remote[len("https://github.com/"):-4]
+        return "https://raw.githack.com/%s/main/docs/index.html" % slug
+    return ""
+
+
 def github_lesson_url(db: Database, day: str) -> str:
     remote = db.setting("github_remote", "").strip()
     if remote.startswith("https://github.com/") and remote.endswith(".git"):
@@ -412,6 +428,10 @@ def push_message(db: Database, settings: Settings, payload: Dict[str, Any]) -> s
     gh_url = github_lesson_url(db, day)
     if gh_url:
         lines.append("📄 GitHub MD：%s" % gh_url)
+    if db.setting("pages_fallback", "1") != "0":
+        preview = raw_preview_url(db, day)
+        if preview:
+            lines.append("🌐 临时 HTML：%s" % preview)
     if not url and not gh_url:
         lines.append("👉 学习内容稍后同步到 GitHub")
     lines.extend(["", "学习完成后回复：打卡"])

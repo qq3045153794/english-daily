@@ -119,6 +119,7 @@ DEFAULTS = {
     "prepare_time": "19:40",
     "telegram_chat_id": "8425641024",
     "pages_url": "",
+    "pages_fallback": "1",
     "github_remote": "",
     "tts_voice": "en-US-AriaNeural",
     "model": "deepseek-flash",
