@@ -206,6 +206,19 @@ def cmd_settings(args):
         print(json.dumps(db.settings(), ensure_ascii=False, indent=2))
 
 
+def cmd_set_daily(args):
+    settings, db = context()
+    total = int(args.count)
+    if total < 5 or total > 50:
+        raise RuntimeError("daily word count must be between 5 and 50")
+    new_count = max(1, round(total * 2.0 / 3.0))
+    review_count = max(0, total - new_count)
+    db.set_setting("daily_total_words", str(total))
+    db.set_setting("daily_new_words", str(new_count))
+    db.set_setting("daily_review_words", str(review_count))
+    print("每天 %d 个词：%d 新词 + %d 复习" % (total, new_count, review_count))
+
+
 def cmd_pause_day(args):
     settings, db = context()
     day = _day(args.date)
@@ -339,6 +352,10 @@ def build_parser():
     q = sub.add_parser("settings")
     q.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"))
     q.set_defaults(func=cmd_settings)
+
+    q = sub.add_parser("set-daily")
+    q.add_argument("count", type=int)
+    q.set_defaults(func=cmd_set_daily)
 
     q = sub.add_parser("pause-day")
     q.add_argument("--date")
