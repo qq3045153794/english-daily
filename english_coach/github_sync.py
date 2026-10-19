@@ -43,18 +43,25 @@ def _remote(settings: Settings, db: Any = None) -> str:
     return os.environ.get("ENGLISH_GITHUB_REMOTE", "").strip()
 
 
-def _push_url(remote: str, token: str) -> str:
-    if not token or not remote.startswith("https://github.com/"):
-        return remote
-    if "@" in remote.split("://", 1)[1].split("/", 1)[0]:
-        return remote
-    return "https://x-access-token:%s@github.com/%s" % (urllib.parse.quote(token, safe=""), remote[len("https://github.com/"):])
+def _askpass(settings: Settings) -> Path:
+    path = settings.home / ".git-askpass.sh"
+    if not path.exists():
+        path.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  *Username*) printf '%s\\n' x-access-token ;;\n"
+            "  *) printf '%s\\n' \"$GITHUB_TOKEN\" ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o700)
+    return path
 
 
 def sync_repo(settings: Settings, message: str, push: bool = True, db: Any = None) -> Dict[str, Any]:
     repo = settings.repo
     _ensure_repo(repo)
-    add_paths = [p.name for p in [repo / "docs", repo / "english_coach", repo / "scripts", repo / "tests", repo / "deploy", repo / "data", repo / "README.md", repo / ".gitignore"] if p.exists()]
+    add_paths = [p.name for p in [repo / "docs", repo / "english_coach", repo / "scripts", repo / "tests", repo / "deploy", repo / ".github", repo / "data", repo / "README.md", repo / ".gitignore"] if p.exists()]
     if not add_paths:
         return {"ok": False, "reason": "nothing to sync"}
     _run(["git", "add", "-A"] + add_paths, repo, check=True)
@@ -66,9 +73,11 @@ def sync_repo(settings: Settings, message: str, push: bool = True, db: Any = Non
     pushed = False
     push_error = ""
     if push and remote:
-        token = settings.github_token
-        url = _push_url(remote, token)
-        proc = _run(["git", "push", url, "HEAD:main"], repo)
+        env = os.environ.copy()
+        env["GIT_ASKPASS"] = str(_askpass(settings))
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GITHUB_TOKEN"] = settings.github_token
+        proc = _run(["git", "push", remote, "HEAD:main"], repo, env=env)
         if proc.returncode != 0:
             push_error = (proc.stderr or proc.stdout)[-2000:]
         else:
