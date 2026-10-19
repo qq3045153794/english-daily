@@ -58,8 +58,9 @@ def _item_text(settings: Settings, item: Any, notifier: Notifier) -> str:
     sentence = str(item["expected"])
     audio = notifier.synthesize(sentence)
     if audio:
-        notifier.send_audio(audio, prompt)
-        return prompt + "\n（语音已发送，可重复播放）"
+        if notifier.send_audio(audio, prompt):
+            return prompt + "\n（语音已发送，可重复播放）"
+        return prompt + "\n\n语音发送失败，请回复“跳过”或稍后重试。"
     return prompt + "\n\n语音生成失败，请回复“跳过”或稍后重试。"
 
 

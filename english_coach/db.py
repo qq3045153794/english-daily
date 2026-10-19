@@ -223,7 +223,7 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM words WHERE id=?", (int(word_id),)).fetchone()
 
-    def due_words(self, limit: int, exclude_ids: Optional[Iterable[int]] = None) -> List[sqlite3.Row]:
+    def due_words(self, limit: int, exclude_ids: Optional[Iterable[int]] = None, include_errors: bool = True) -> List[sqlite3.Row]:
         exclude = list(exclude_ids or [])
         now = iso_now()
         sql = """SELECT w.*, s.status AS state_status, s.wrong_count, s.next_review_at
@@ -231,6 +231,8 @@ class Database:
                  WHERE s.next_review_at IS NOT NULL AND s.next_review_at <= ?
                  AND s.status != 'new'"""
         params: List[Any] = [now]
+        if not include_errors:
+            sql += " AND s.wrong_count = 0"
         if exclude:
             sql += " AND w.id NOT IN (%s)" % ",".join("?" for _ in exclude)
             params.extend(exclude)

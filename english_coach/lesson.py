@@ -255,7 +255,15 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     day = day or date_str()
     existing = db.get_lesson(day)
     if existing and not force:
-        return load_private_lesson(settings, day)
+        payload = load_private_lesson(settings, day)
+        render_index(db, settings)
+        if sync:
+            try:
+                from .github_sync import sync_repo
+                sync_repo(settings, "prepare: %s" % day, push=True, db=db)
+            except Exception as exc:
+                db.log("sync_error", str(exc))
+        return payload
     if existing and existing["checked_in_at"]:
         raise RuntimeError("lesson is already checked in; refusing to overwrite")
 
@@ -421,5 +429,11 @@ def push_lesson(settings: Settings, db: Database, day: Optional[str] = None) -> 
     notifier.send_text(message)
     with db.connect() as conn:
         conn.execute("UPDATE lessons SET pushed_at=?, status=CASE WHEN checked_in_at IS NULL THEN 'pushed' ELSE status END WHERE lesson_date=?", (iso_now(), day))
+    render_index(db, settings)
+    try:
+        from .github_sync import sync_repo
+        sync_repo(settings, "push: %s" % day, push=True, db=db)
+    except Exception as exc:
+        db.log("sync_error", str(exc))
     db.log("push_lesson", "date=%s" % day)
     return message

@@ -181,7 +181,8 @@ def select_quiz_words(db: Database, lesson_words: List[Dict[str, Any]], count: i
         selected.append(item)
         used.add(int(item["id"]))
 
-    for row in db.due_words(max(4, count - len(selected)), exclude_ids=used):
+    due_quota = min(4, count - len(selected))
+    for row in db.due_words(due_quota, exclude_ids=used, include_errors=False):
         if len(selected) >= count:
             break
         d = row_dict(row)
@@ -189,7 +190,8 @@ def select_quiz_words(db: Database, lesson_words: List[Dict[str, Any]], count: i
         selected.append(d)
         used.add(int(d["id"]))
 
-    for row in db.error_words(max(4, count - len(selected)), exclude_ids=used):
+    error_quota = min(4, count - len(selected))
+    for row in db.error_words(error_quota, exclude_ids=used):
         if len(selected) >= count:
             break
         d = row_dict(row)
