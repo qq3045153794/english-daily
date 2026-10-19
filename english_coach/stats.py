@@ -147,8 +147,7 @@ def render_index(db: Database, settings: Any, today: Optional[date] = None) -> N
         "",
     ])
     index_md = "\n".join(lines)
-    Path(settings.index_path).write_text(index_md, encoding="utf-8")
-    Path(settings.index_path).with_suffix(".html").write_text(
+    Path(settings.index_path).write_text(
         page_html("英语学习", index_md, include_speak=False), encoding="utf-8"
     )
 

@@ -320,7 +320,7 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     from .stats import calculate_stats
     stats = calculate_stats(db)
     md = render_markdown(day, cards, data, stats)
-    md_path = settings.lessons_dir / ("%s.md" % day)
+    md_path = settings.md_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")
     html_path = settings.lessons_dir / ("%s.html" % day)
@@ -355,7 +355,7 @@ def pages_lesson_url(db: Database, settings: Settings, day: str) -> str:
     remote = db.setting("github_remote", "").strip()
     if remote.startswith("https://github.com/") and remote.endswith(".git"):
         repo = remote[:-4]
-        return repo + "/blob/main/docs/lessons/%s.md" % day
+        return repo + "/blob/main/lessons/%s.md" % day
     return ""
 
 
@@ -363,7 +363,7 @@ def github_lesson_url(db: Database, day: str) -> str:
     remote = db.setting("github_remote", "").strip()
     if remote.startswith("https://github.com/") and remote.endswith(".git"):
         repo = remote[:-4]
-        return repo + "/blob/main/docs/lessons/%s.md" % day
+        return repo + "/blob/main/lessons/%s.md" % day
     return ""
 
 

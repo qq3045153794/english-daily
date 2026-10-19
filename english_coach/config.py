@@ -88,8 +88,9 @@ class Settings:
         self.tts_dir = Path(os.environ.get("ENGLISH_COACH_TTS_DIR", str(self.home / "tts")))
         self.public_dir = Path(os.environ.get("ENGLISH_COACH_PUBLIC_DIR", str(self.repo / "docs")))
         self.lessons_dir = self.public_dir / "lessons"
+        self.md_dir = self.repo / "lessons"
         self.progress_path = self.public_dir / "data" / "progress.json"
-        self.index_path = self.public_dir / "index.md"
+        self.index_path = self.public_dir / "index.html"
         self.word_pool_path = Path(os.environ.get("ENGLISH_COACH_WORD_POOL", str(self.repo / "data" / "word_pool.json")))
         self.cache_dir = Path(os.environ.get("ENGLISH_COACH_CACHE", str(self.repo / "cache")))
 
@@ -111,5 +112,5 @@ class Settings:
         self.deepseek_model = os.environ.get("ENGLISH_DEEPSEEK_MODEL", "deepseek-flash")
 
     def ensure_dirs(self) -> None:
-        for path in [self.home, self.private_lessons, self.tts_dir, self.lessons_dir, self.progress_path.parent, self.cache_dir]:
+        for path in [self.home, self.private_lessons, self.tts_dir, self.lessons_dir, self.md_dir, self.progress_path.parent, self.cache_dir]:
             path.mkdir(parents=True, exist_ok=True)

@@ -14,7 +14,8 @@
 
 ## 目录
 
-- `docs/`：GitHub Pages 静态站点（Markdown + 生成的 HTML）
+- `docs/`：GitHub Pages 纯静态 HTML
+- `lessons/`：GitHub 上的 Markdown 学习归档
 - `data/word_pool.json`：从 ECDICT 提取的 CET4/CET6/IELTS 词库
 - `english_coach/`：课程生成、打卡、训练和统计代码
 - `scripts/ec.py`：命令行入口
