@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import date_str, iso_now, today_cst
 from .db import Database
+from .html_render import page_html
 
 
 def _date_range(start: date, end: date) -> List[date]:
@@ -145,7 +146,11 @@ def render_index(db: Database, settings: Any, today: Optional[date] = None) -> N
         "> 统计由服务器提交更新；GitHub Pages 可能需要几分钟刷新。",
         "",
     ])
-    Path(settings.index_path).write_text("\n".join(lines), encoding="utf-8")
+    index_md = "\n".join(lines)
+    Path(settings.index_path).write_text(index_md, encoding="utf-8")
+    Path(settings.index_path).with_suffix(".html").write_text(
+        page_html("英语学习", index_md, include_speak=False), encoding="utf-8"
+    )
 
 
 def stats_text(db: Database) -> str:

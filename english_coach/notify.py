@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,8 @@ class Notifier:
         self.token = settings.telegram_token
         self.chat_id = settings.telegram_chat_id
         self.voice = "en-US-AriaNeural"
+        proxy = os.environ.get("TELEGRAM_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        self.proxies = {"http": proxy, "https": proxy} if proxy else None
 
     @property
     def enabled(self) -> bool:
@@ -53,6 +56,7 @@ class Notifier:
                     self._api("sendMessage"),
                     data={"chat_id": self.chat_id, "text": part, "disable_web_page_preview": "true"},
                     timeout=30,
+                    proxies=self.proxies,
                 )
                 if resp.status_code >= 400:
                     ok = False
@@ -72,6 +76,7 @@ class Notifier:
                     data={"chat_id": self.chat_id, "caption": caption[:900], "title": caption[:60]},
                     files={"audio": (path.name, fh, "audio/mpeg")},
                     timeout=60,
+                    proxies=self.proxies,
                 )
             return resp.status_code < 400
         except Exception:

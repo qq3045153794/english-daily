@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import Settings, add_days, clean_line, date_str, iso_now
 from .db import Database
+from .html_render import page_html
 from .llm import DeepSeekClient, lesson_prompt, repair_prompt
 from .notify import Notifier
 from .stats import render_index
@@ -322,6 +323,8 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     md_path = settings.lessons_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")
+    html_path = settings.lessons_dir / ("%s.html" % day)
+    html_path.write_text(page_html("%s 英语学习" % day, md, include_speak=True, home_href="../"), encoding="utf-8")
 
     lesson_id = db.upsert_lesson(day, str(md_path), str(private_path), status="prepared")
     db.replace_lesson_words(lesson_id, selected)
