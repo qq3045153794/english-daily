@@ -17,13 +17,13 @@ title: 英语学习
 
 ### 最近 30 天
 
-<div class="calendar"><span class="day today" title="2026-10-19">⏳</span></div>
+<div class="calendar"></div>
 
 ## 最近课程
 
 | 日期 | 状态 | 课程 |
 |---|---|---|
-| 2026-10-19 | ⏳ 未打卡 | [打开](lessons/2026-10-19.html) |
+| - | - | 还没有课程 |
 
 ---
 
