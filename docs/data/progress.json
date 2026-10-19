@@ -1,0 +1,19 @@
+{
+  "start_date": "2026-10-19",
+  "today": "2026-10-19",
+  "streak": 0,
+  "total_checkins": 0,
+  "expected_days": 0,
+  "missed_days": 0,
+  "missed_dates": [],
+  "checked_in_today": false,
+  "completion_rate": 0.0,
+  "paused_dates": [],
+  "calendar": [
+    {
+      "date": "2026-10-19",
+      "status": "today"
+    }
+  ],
+  "updated_at": "2026-10-19T23:45:33+08:00"
+}

@@ -1,0 +1,6 @@
+{
+  "source": "https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv",
+  "license": "MIT",
+  "count": 7628,
+  "description": "CET4/CET6/IELTS words derived from ECDICT"
+}
