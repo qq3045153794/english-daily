@@ -66,9 +66,10 @@ def sync_repo(settings: Settings, message: str, push: bool = True, db: Any = Non
         return {"ok": False, "reason": "nothing to sync"}
     _run(["git", "add", "-A"] + add_paths, repo, check=True)
     status = _run(["git", "status", "--porcelain"], repo)
-    if not status.stdout.strip():
-        return {"ok": True, "committed": False, "pushed": False}
-    _run(["git", "commit", "-m", message], repo, check=True)
+    committed = False
+    if status.stdout.strip():
+        _run(["git", "commit", "-m", message], repo, check=True)
+        committed = True
     remote = _remote(settings, db)
     pushed = False
     push_error = ""
@@ -82,7 +83,7 @@ def sync_repo(settings: Settings, message: str, push: bool = True, db: Any = Non
             push_error = (proc.stderr or proc.stdout)[-2000:]
         else:
             pushed = True
-    return {"ok": not bool(push_error), "committed": True, "pushed": pushed, "remote": remote, "error": push_error}
+    return {"ok": not bool(push_error), "committed": committed, "pushed": pushed, "remote": remote, "error": push_error}
 
 
 def github_api(token: str, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
