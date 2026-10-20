@@ -449,12 +449,12 @@ class Database:
                 (text, 1 if correct else 0, float(score), iso_now(), int(item_id)),
             )
 
-    def advance_session(self, session_id: int, score: float) -> Optional[sqlite3.Row]:
+    def advance_session(self, session_id: int, score: float, steps: int = 1) -> Optional[sqlite3.Row]:
         with self.connect() as conn:
             session = conn.execute("SELECT * FROM quiz_sessions WHERE id=?", (int(session_id),)).fetchone()
             if session is None:
                 return None
-            idx = int(session["current_index"]) + 1
+            idx = int(session["current_index"]) + int(steps)
             total = int(session["total"])
             if idx >= total:
                 conn.execute(

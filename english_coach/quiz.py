@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any, List, Optional, Tuple
 
 from .config import Settings, date_str, normalize_answer, normalize_sentence
@@ -64,11 +65,54 @@ def _item_text(settings: Settings, item: Any, notifier: Notifier) -> str:
     return prompt + "\n\n语音生成失败，请回复“跳过”或稍后重试。"
 
 
+def _batch_size(db: Database) -> int:
+    try:
+        return max(1, int(db.setting("quiz_batch_size", "5")))
+    except Exception:
+        return 5
+
+
+def _pending_batch(db: Database, session: Any, size: int) -> List[Any]:
+    """当前待答的一批题：拼写题按 size 批量，听写题单题。"""
+    session_id = int(session["id"])
+    idx = int(session["current_index"])
+    items = db.session_items(session_id)
+    remaining = items[idx:]
+    if not remaining:
+        return []
+    if remaining[0]["kind"] == "dictation":
+        return remaining[:1]
+    batch = []
+    for it in remaining:
+        if it["kind"] != "spelling":
+            break
+        batch.append(it)
+        if len(batch) >= size:
+            break
+    return batch
+
+
+def _batch_text(settings: Settings, batch: List[Any], notifier: Notifier) -> str:
+    """把一批题拼成一条消息。"""
+    if not batch:
+        return "当前没有待答题。"
+    if len(batch) == 1 and batch[0]["kind"] == "dictation":
+        return _item_text(settings, batch[0], notifier)
+    parts = [str(it["prompt"]) for it in batch]
+    return "请依次拼写下列单词（每行一个答案）：\n\n" + "\n".join(parts)
+
+
+def _parse_answers(text: str) -> List[str]:
+    """解析批量答案：按换行/逗号/顿号/分号拆分。"""
+    parts = re.split(r"[\n,，、;；]+", (text or "").strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
 def _start_if_needed(settings: Settings, db: Database, lesson: Any, notifier: Notifier) -> Tuple[Any, str]:
     active = db.active_session()
     if active is not None:
-        item = db.current_item(int(active["id"]))
-        return active, _item_text(settings, item, notifier)
+        batch = _pending_batch(db, active, _batch_size(db))
+        return active, _batch_text(settings, batch, notifier)
     payload = load_private_lesson(settings, str(lesson["lesson_date"]))
     bp = payload.get("quiz_blueprint", {})
     items = list(bp.get("spelling", [])) + list(bp.get("dictation", []))
@@ -77,8 +121,8 @@ def _start_if_needed(settings: Settings, db: Database, lesson: Any, notifier: No
     session_id = db.create_session(int(lesson["id"]), items)
     with db.connect() as conn:
         session = conn.execute("SELECT * FROM quiz_sessions WHERE id=?", (session_id,)).fetchone()
-    item = db.current_item(session_id)
-    return session, _item_text(settings, item, notifier)
+    batch = _pending_batch(db, session, _batch_size(db))
+    return session, _batch_text(settings, batch, notifier)
 
 
 def start_quiz(settings: Settings, db: Database, day: Optional[str] = None) -> str:
@@ -127,41 +171,53 @@ def answer(settings: Settings, db: Database, text: str) -> str:
         raise RuntimeError("当前没有进行中的训练")
     if session["status"] == "paused":
         return "训练已暂停。回复“继续”后继续答题。"
-    item = db.current_item(int(session["id"]))
-    if item is None:
+    batch = _pending_batch(db, session, _batch_size(db))
+    if not batch:
         return "当前没有待答题。"
 
-    if item["kind"] == "spelling":
-        expected = str(item["expected"])
-        correct, score, mode = evaluate_spelling(expected, text)
-        db.answer_item(int(item["id"]), text, correct, score)
-        if item["word_id"] is not None:
-            db.update_word_result(int(item["word_id"]), correct)
-        if mode == "exact":
-            feedback = "✅ 正确：%s" % expected
-        elif mode == "near":
-            feedback = "🟡 差一点：你的答案 `%s`，正确拼写是 `%s`。" % (text.strip(), expected)
-        else:
-            feedback = "❌ 正确答案：%s" % expected
+    # 单题听写：整段文本即答案；批量拼写：按行/分隔符拆分。
+    if len(batch) == 1 and batch[0]["kind"] == "dictation":
+        answers = [text.strip()]
     else:
-        expected = str(item["expected"])
-        correct, score, exp_tokens, got_tokens = evaluate_dictation(expected, text)
-        db.answer_item(int(item["id"]), text, correct, score)
-        if item["word_id"] is not None:
-            db.update_word_result(int(item["word_id"]), correct)
-        if score >= 0.999:
-            feedback = "✅ 听写完全正确。"
+        answers = _parse_answers(text)
+
+    feedbacks: List[str] = []
+    total_earned = 0.0
+    for i, item in enumerate(batch):
+        ans = answers[i] if i < len(answers) else ""
+        if item["kind"] == "spelling":
+            expected = str(item["expected"])
+            correct, score, mode = evaluate_spelling(expected, ans)
+            db.answer_item(int(item["id"]), ans, correct, score)
+            if item["word_id"] is not None:
+                db.update_word_result(int(item["word_id"]), correct)
+            if mode == "exact":
+                feedbacks.append("✅ 正确：%s" % expected)
+            elif mode == "near":
+                feedbacks.append("🟡 差一点：你的答案 `%s`，正确拼写是 `%s`。" % (ans, expected))
+            else:
+                feedbacks.append("❌ 正确答案：%s（你答：%s）" % (expected, ans or "空"))
         else:
-            feedback = "📝 听写得分：%d%%\n正确句子：%s" % (round(score * 100), expected)
+            expected = str(item["expected"])
+            correct, score, exp_tokens, got_tokens = evaluate_dictation(expected, ans)
+            db.answer_item(int(item["id"]), ans, correct, score)
+            if item["word_id"] is not None:
+                db.update_word_result(int(item["word_id"]), correct)
+            if score >= 0.999:
+                feedbacks.append("✅ 听写完全正确。")
+            else:
+                feedbacks.append("📝 听写得分：%d%%\n正确句子：%s" % (round(score * 100), expected))
+        total_earned += float(score)
 
     session = db.active_session()
-    current_score = float(session["score"] if session else 0.0) + float(score)
-    next_item = db.advance_session(int(session["id"]), current_score) if session else None
+    new_score = float(session["score"] if session else 0.0) + total_earned
+    next_item = db.advance_session(int(session["id"]), new_score, steps=len(batch)) if session else None
     notifier = Notifier(settings)
     if next_item is None:
         _after_finish(settings, db)
-        return feedback + "\n\n" + _finish_text(db)
-    return feedback + "\n\n" + _item_text(settings, next_item, notifier)
+        return "\n".join(feedbacks) + "\n\n" + _finish_text(db)
+    next_batch = _pending_batch(db, db.active_session(), _batch_size(db))
+    return "\n".join(feedbacks) + "\n\n" + _batch_text(settings, next_batch, notifier)
 
 
 def _after_finish(settings: Settings, db: Database) -> None:
@@ -212,19 +268,21 @@ def skip(settings: Settings, db: Database) -> str:
     session = db.active_session()
     if session is None:
         return "当前没有进行中的训练。"
-    item = db.current_item(int(session["id"]))
-    if item is None:
+    batch = _pending_batch(db, session, _batch_size(db))
+    if not batch:
         return "当前没有待答题。"
+    item = batch[0]
     db.answer_item(int(item["id"]), "[skip]", False, 0.0)
     if item["word_id"] is not None:
         db.update_word_result(int(item["word_id"]), False)
     current_score = float(session["score"] or 0)
-    next_item = db.advance_session(int(session["id"]), current_score)
+    next_item = db.advance_session(int(session["id"]), current_score, steps=1)
     prefix = "跳过。正确答案：%s" % item["expected"]
     if next_item is None:
         _after_finish(settings, db)
         return prefix + "\n\n" + _finish_text(db)
-    return prefix + "\n\n" + _item_text(settings, next_item, Notifier(settings))
+    next_batch = _pending_batch(db, db.active_session(), _batch_size(db))
+    return prefix + "\n\n" + _batch_text(settings, next_batch, Notifier(settings))
 
 
 def pause(settings: Settings, db: Database) -> str:
@@ -240,8 +298,8 @@ def resume(settings: Settings, db: Database) -> str:
     if session is None:
         return "当前没有进行中的训练。"
     db.set_session_status(int(session["id"]), "active")
-    item = db.current_item(int(session["id"]))
-    return "训练继续。\n\n" + _item_text(settings, item, Notifier(settings))
+    batch = _pending_batch(db, session, _batch_size(db))
+    return "训练继续。\n\n" + _batch_text(settings, batch, Notifier(settings))
 
 
 def quiz_status(db: Database) -> str:
