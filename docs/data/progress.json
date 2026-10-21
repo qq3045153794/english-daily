@@ -3,11 +3,11 @@
   "today": "2026-10-21",
   "streak": 2,
   "total_checkins": 2,
-  "expected_days": 1,
+  "expected_days": 2,
   "missed_days": 0,
   "missed_dates": [],
   "checked_in_today": true,
-  "completion_rate": 200.0,
+  "completion_rate": 100.0,
   "paused_dates": [],
   "calendar": [
     {
@@ -19,5 +19,5 @@
       "status": "checked_in"
     }
   ],
-  "updated_at": "2026-10-21T23:17:17+08:00"
+  "updated_at": "2026-10-21T23:17:34+08:00"
 }

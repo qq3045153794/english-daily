@@ -29,7 +29,9 @@ def calculate_stats(db: Database, today: Optional[date] = None) -> Dict[str, Any
     checked = set(db.checked_dates())
     paused = set(db.pause_dates())
     past_days = [d for d in _date_range(start, today - timedelta(days=1)) if d.isoformat() not in paused]
-    expected = len(past_days)
+    # 今天也算应打卡；只有已经打卡才计入，避免当天未完成时算缺卡
+    counts_today = today.isoformat() not in paused and today.isoformat() in checked
+    expected = len(past_days) + (1 if counts_today else 0)
     total_checkins = len(checked)
     missed_dates = [d.isoformat() for d in past_days if d.isoformat() not in checked]
     missed = len(missed_dates)

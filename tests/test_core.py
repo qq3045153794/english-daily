@@ -82,6 +82,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(s["missed_days"], 1)
         self.assertEqual(s["streak"], 0)
 
+    def test_stats_counts_today_when_checked(self):
+        today = date.today()
+        self.db.set_setting("start_date", (today - timedelta(days=1)).isoformat())
+        id1 = self.db.upsert_lesson((today - timedelta(days=1)).isoformat(), "a", "a")
+        id2 = self.db.upsert_lesson(today.isoformat(), "b", "b")
+        self.db.checkin(id1)
+        self.db.checkin(id2)
+        s = calculate_stats(self.db, today)
+        self.assertEqual(s["total_checkins"], 2)
+        self.assertEqual(s["expected_days"], 2)
+        self.assertEqual(s["completion_rate"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()
