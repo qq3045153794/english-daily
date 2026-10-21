@@ -169,47 +169,26 @@ def select_lesson_words(db: Database, total: int = 15, new_count: int = 10, revi
 
 
 def select_quiz_words(db: Database, lesson_words: List[Dict[str, Any]], count: int = 20) -> List[Dict[str, Any]]:
+    """当天全部新词 + 复习词补足（错词优先，符合遗忘曲线）。"""
     count = max(1, int(count))
     today = [dict(x) for x in lesson_words]
-    selected: List[Dict[str, Any]] = []
-    used: set = set()
+    selected: List[Dict[str, Any]] = list(today)
+    used: set = {int(item["id"]) for item in selected}
 
-    # 12 today, then 4 due/review, then 4 error words. Adapt if the pool is small.
-    for i, item in enumerate(today):
-        if i >= min(12, count):
-            break
-        selected.append(item)
-        used.add(int(item["id"]))
-
-    due_quota = min(4, count - len(selected))
-    for row in db.due_words(due_quota, exclude_ids=used, include_errors=False):
-        if len(selected) >= count:
-            break
-        d = row_dict(row)
-        d["role"] = "review"
-        selected.append(d)
-        used.add(int(d["id"]))
-
-    error_quota = min(4, count - len(selected))
-    for row in db.error_words(error_quota, exclude_ids=used):
-        if len(selected) >= count:
-            break
-        d = row_dict(row)
-        d["role"] = "error"
-        selected.append(d)
-        used.add(int(d["id"]))
-
-    for item in today:
-        if len(selected) >= count:
-            break
-        if int(item["id"]) not in used:
-            selected.append(item)
-            used.add(int(item["id"]))
-
-    if len(selected) < count:
-        for row in db.new_words(count - len(selected), exclude_ids=used):
+    # 复习词：错词优先（wrong_count 降序），再补到期待复习的词（next_review_at 升序）。
+    remaining = count - len(selected)
+    if remaining > 0:
+        for row in db.error_words(remaining, exclude_ids=used):
             d = row_dict(row)
-            d["role"] = "new"
+            d["role"] = "error"
+            selected.append(d)
+            used.add(int(d["id"]))
+            if len(selected) >= count:
+                break
+    if len(selected) < count:
+        for row in db.due_words(count - len(selected), exclude_ids=used, include_errors=False):
+            d = row_dict(row)
+            d["role"] = "review"
             selected.append(d)
             used.add(int(d["id"]))
             if len(selected) >= count:

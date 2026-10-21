@@ -159,8 +159,8 @@ def build_blueprint(db: Database, cards: List[Dict[str, Any]], data: Dict[str, A
             "role": card.get("role", "new"),
             "difficulty": 0,
         })
-    # 拼写题直接考当天全部课程词（课程词本身已含新词+复习词），不额外凑词。
-    quiz_words = lesson_like
+    # 拼写题：当天全部新词 + 复习词（错词优先）补足到 spelling_count。
+    quiz_words = select_quiz_words(db, lesson_like, spelling_count)
     spelling = []
     for pos, item in enumerate(quiz_words, 1):
         q = spelling_item(item, pos, len(quiz_words))
