@@ -14,6 +14,7 @@ from .db import Database
 
 ECDICT_URL = "https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv"
 WORD_RE = re.compile(r"^[a-z][a-z'\-]{1,29}$")
+_POS_PREFIX = re.compile(r"^((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art|aux|int|abbr)\.)\s*", re.I)
 TAG_LEVEL = {"cet4": 1, "cet6": 2, "ielts": 3}
 EXCLUDE_WORDS = {
     "a", "an", "the", "and", "or", "but", "if", "as", "for", "with", "from", "by",
@@ -196,10 +197,31 @@ def select_quiz_words(db: Database, lesson_words: List[Dict[str, Any]], count: i
     return selected[:count]
 
 
+def quiz_clue(meaning: str, pos: str = "") -> tuple:
+    """把词库释义压成一条干净的猜词提示，返回 (词性, 中文)。
+
+    词库常把多个词性的释义用字面量 \\n 连在一起，且同义词可多达七八个。
+    猜词时只保留第一组词性和前 3 个义项，避免提示太长或前后矛盾。
+    """
+    text = clean_line(meaning, 180)
+    first = text.split("；")[0].strip() if text else ""
+    head = ""
+    m = _POS_PREFIX.match(first)
+    if m:
+        head = m.group(1).lower()
+        first = first[m.end():].strip()
+    items = [x.strip() for x in re.split(r"[,，]", first) if x.strip()]
+    body = ", ".join(items[:3])
+    pos_text = pos.strip() if pos and pos.strip() not in ("-", "None") else (head or "-")
+    return pos_text, (body or text or "-")
+
+
 def spelling_item(item: Dict[str, Any], position: int, total: int = 20) -> Dict[str, Any]:
     word = str(item.get("word", "")).strip().lower()
-    meaning = clean_line(str(item.get("meaning_zh", "") or item.get("definition_en", "")), 150)
-    pos = clean_line(str(item.get("pos", "")), 40)
+    pos, meaning = quiz_clue(
+        str(item.get("meaning_zh", "") or item.get("definition_en", "")),
+        str(item.get("pos", "") or ""),
+    )
     first = word[:1].upper() if word else "?"
     prompt = "第 %d/%d 题\n词性：%s\n中文：%s\n首字母：%s（%d 个字母）\n请拼写英文单词：" % (
         position, total, pos or "-", meaning or "-", first, len(word)

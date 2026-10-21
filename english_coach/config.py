@@ -72,8 +72,11 @@ def normalize_sentence(text: str) -> str:
 
 def clean_line(text: str, limit: int = 240) -> str:
     text = (text or "").replace("\r", " ").replace("\n", "；").strip()
+    # 词库里存在字面量 \n（反斜杠 + n），先还原再按分隔符处理
+    text = text.replace("\\r", " ").replace("\\n", "；").replace("\\t", " ")
     text = re.sub(r"\s+", " ", text)
-    return text[:limit]
+    text = re.sub(r"(；\s*)+", "；", text)
+    return text.strip("； ")[:limit]
 
 
 class Settings:
