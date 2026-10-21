@@ -272,7 +272,7 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     new_count = int(db.setting("daily_new_words", "10"))
     review_count = int(db.setting("daily_review_words", "5"))
     existing_payload = load_private_lesson(settings, day) if existing else None
-    if existing_payload and existing_payload.get("words"):
+    if existing_payload and existing_payload.get("words") and not force:
         selected = []
         for card in existing_payload.get("words", []):
             row = db.word_by_id(int(card.get("word_id")))
