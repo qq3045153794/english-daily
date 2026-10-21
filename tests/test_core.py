@@ -61,6 +61,14 @@ class CoreTests(unittest.TestCase):
         self.assertIn("第 1/20 题", item["prompt"])
         self.assertEqual(item["expected"], "abandon")
 
+    def test_parse_answers(self):
+        from english_coach.quiz import _parse_answers
+        self.assertEqual(_parse_answers("lose court allow", 3), ["lose", "court", "allow"])
+        self.assertEqual(_parse_answers("lose\ncourt\nallow", 3), ["lose", "court", "allow"])
+        self.assertEqual(_parse_answers("lose, court、allow", 3), ["lose", "court", "allow"])
+        # 数量对不上时空格不拆，保留原有分隔符行为
+        self.assertEqual(_parse_answers("look up", 3), ["look up"])
+
     def test_stats(self):
         today = date.today()
         self.db.set_setting("start_date", (today - timedelta(days=2)).isoformat())

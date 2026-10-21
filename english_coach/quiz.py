@@ -99,13 +99,18 @@ def _batch_text(settings: Settings, batch: List[Any], notifier: Notifier) -> str
     if len(batch) == 1 and batch[0]["kind"] == "dictation":
         return _item_text(settings, batch[0], notifier)
     parts = [str(it["prompt"]) for it in batch]
-    return "请依次拼写下列单词（每行一个答案）：\n\n" + "\n".join(parts)
+    return "请依次拼写下列单词（每行一个答案，或用空格分隔）：\n\n" + "\n".join(parts)
 
 
-def _parse_answers(text: str) -> List[str]:
-    """解析批量答案：按换行/逗号/顿号/分号拆分。"""
-    parts = re.split(r"[\n,，、;；]+", (text or "").strip())
-    return [p.strip() for p in parts if p.strip()]
+def _parse_answers(text: str, expected: Optional[int] = None) -> List[str]:
+    """解析批量答案：按换行/逗号/顿号/分号拆分；单行空格分隔也识别。"""
+    raw = (text or "").strip()
+    parts = [p.strip() for p in re.split(r"[\n,，、;；]+", raw) if p.strip()]
+    if expected and len(parts) < expected:
+        spaced = [p for p in raw.split() if p]
+        if len(spaced) == expected:
+            return spaced
+    return parts
 
 
 def _start_if_needed(settings: Settings, db: Database, lesson: Any, notifier: Notifier) -> Tuple[Any, str]:
@@ -179,7 +184,7 @@ def answer(settings: Settings, db: Database, text: str) -> str:
     if len(batch) == 1 and batch[0]["kind"] == "dictation":
         answers = [text.strip()]
     else:
-        answers = _parse_answers(text)
+        answers = _parse_answers(text, len(batch))
 
     feedbacks: List[str] = []
     total_earned = 0.0
