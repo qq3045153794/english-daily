@@ -35,6 +35,7 @@ class Notifier:
         self.token = settings.telegram_token
         self.chat_id = settings.telegram_chat_id
         self.voice = "en-US-AriaNeural"
+        self.rate = os.environ.get("ENGLISH_TTS_RATE", "-30%")
         proxy = os.environ.get("TELEGRAM_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         self.proxies = {"http": proxy, "https": proxy} if proxy else None
 
@@ -87,7 +88,7 @@ class Notifier:
         if not text:
             return None
         voice = voice or self.voice
-        digest = hashlib.sha1((voice + "\n" + text).encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha1((voice + "\n" + self.rate + "\n" + text).encode("utf-8")).hexdigest()[:16]
         out = self.settings.tts_dir / ("%s.mp3" % digest)
         if out.exists() and out.stat().st_size > 100:
             return out
@@ -96,7 +97,7 @@ class Notifier:
             return None
         try:
             subprocess.run(
-                [edge, "--voice", voice, "--text", text, "--write-media", str(out)],
+                [edge, "--voice", voice, "--rate", self.rate, "--text", text, "--write-media", str(out)],
                 check=True,
                 timeout=90,
                 stdout=subprocess.DEVNULL,
