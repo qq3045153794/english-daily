@@ -60,6 +60,25 @@ class CoreTests(unittest.TestCase):
         item = spelling_item({"id": 1, "word": "abandon", "pos": "v.", "meaning_zh": "放弃"}, 1, 20)
         self.assertIn("第 1/20 题", item["prompt"])
         self.assertEqual(item["expected"], "abandon")
+        # 用户要求：拼写题不给首字母提示，只给字母数
+        self.assertNotIn("首字母", item["prompt"])
+        self.assertIn("7 个字母", item["prompt"])
+
+    def test_quiz_clue_keeps_common_pos(self):
+        from english_coach.words import quiz_clue
+        # might 的冷门名词义不能盖掉情态动词义
+        pos, zh = quiz_clue("n. 力量, 权力\\naux. 可能, 也许", "")
+        self.assertIn("可能", zh)
+        self.assertTrue(zh.index("可能") < zh.index("力量"))
+        # less / least 必须能靠"最"区分开
+        _, less = quiz_clue("n. 较少, 较小\\na. 少的, 小的\\nadv. 较少, 较小, 较差", "")
+        _, least = quiz_clue("n. 最少, 最小, 最小限度\\na. 最少的, 最小的\\nadv. 最小, 最少", "")
+        self.assertNotEqual(less, least)
+        self.assertIn("最少", least)
+        # 领域标签和噪声丢弃
+        _, power = quiz_clue("n. 力, 体力\\nvt. 使...有力量\\n[计] 乘幂; DOS外部命令:能控制许多电池电源计算机上的电源管理特性", "")
+        self.assertNotIn("DOS", power)
+        self.assertNotIn("[", power)
 
     def test_parse_answers(self):
         from english_coach.quiz import _parse_answers

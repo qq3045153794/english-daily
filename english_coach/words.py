@@ -14,7 +14,7 @@ from .db import Database
 
 ECDICT_URL = "https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv"
 WORD_RE = re.compile(r"^[a-z][a-z'\-]{1,29}$")
-_POS_PREFIX = re.compile(r"^((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art|aux|int|abbr)\.)\s*", re.I)
+_POS_PREFIX = re.compile(r"^((?:n|v|vt|vi|adj|adv|a|prep|conj|pron|num|art|aux|int|abbr)\.)\s*", re.I)
 TAG_LEVEL = {"cet4": 1, "cet6": 2, "ielts": 3}
 EXCLUDE_WORDS = {
     "a", "an", "the", "and", "or", "but", "if", "as", "for", "with", "from", "by",
@@ -201,19 +201,55 @@ def quiz_clue(meaning: str, pos: str = "") -> tuple:
     """把词库释义压成一条干净的猜词提示，返回 (词性, 中文)。
 
     词库常把多个词性的释义用字面量 \\n 连在一起，且同义词可多达七八个。
-    猜词时只保留第一组词性和前 3 个义项，避免提示太长或前后矛盾。
+    猜词时最多保留 3 组词性（每组前 2 个义项），并把名词组排到最后：
+    只取第一组会把冷门词性当主义（might→力量而非"可能"）。方括号领域标签（[计]/[医]）丢弃。
     """
-    text = clean_line(meaning, 180)
-    first = text.split("；")[0].strip() if text else ""
-    head = ""
-    m = _POS_PREFIX.match(first)
-    if m:
-        head = m.group(1).lower()
-        first = first[m.end():].strip()
-    items = [x.strip() for x in re.split(r"[,，]", first) if x.strip()]
-    body = ", ".join(items[:3])
-    pos_text = pos.strip() if pos and pos.strip() not in ("-", "None") else (head or "-")
-    return pos_text, (body or text or "-")
+    text = clean_line(meaning, 240)
+    groups: List[List[Any]] = []  # [pos, [senses...]]
+    for chunk in re.split(r"[；;]", text):
+        chunk = chunk.strip()
+        if not chunk or chunk.startswith("["):
+            continue
+        head = ""
+        m = _POS_PREFIX.match(chunk)
+        if m:
+            head = m.group(1).lower()
+            if head == "a.":
+                head = "adj."
+            chunk = chunk[m.end():].strip()
+        senses = [x.strip() for x in re.split(r"[,，]", chunk) if x.strip()]
+        # 丢掉夹杂在释义里的领域噪声（如 "DOS外部命令:…"）与超长句子
+        senses = [s for s in senses if ":" not in s and "：" not in s and len(s) <= 14]
+        if not senses:
+            continue
+        for g in groups:
+            if g[0] == head:
+                for s in senses:
+                    if s not in g[1]:
+                        g[1].append(s)
+                break
+        else:
+            groups.append([head, senses])
+
+    if not groups:
+        return (pos.strip() if pos and pos.strip() not in ("-", "None") else "-"), (text or "-")
+
+    # 情态动词常被词库的冷门名词义盖过（might→力量）：aux. 组排到最前，其余保持词库顺序
+    groups.sort(key=lambda g: 0 if g[0] == "aux." else 1)
+    groups = groups[:3]
+    per_group = 3 if len(groups) == 1 else 2
+    groups = [[g[0], g[1][:per_group]] for g in groups]
+
+    heads = [g[0] for g in groups if g[0]]
+    pos_text = pos.strip() if pos and pos.strip() not in ("-", "None") else (" / ".join(heads) or "-")
+
+    if len(groups) == 1:
+        body = ", ".join(groups[0][1])
+    else:
+        # 中文行里不再重复 "aux./n." 前缀：词性行已经按同样顺序列出来了
+        body = "；".join(", ".join(g[1]) for g in groups if g[1])
+
+    return pos_text, (body[:90] or text or "-")
 
 
 def spelling_item(item: Dict[str, Any], position: int, total: int = 20) -> Dict[str, Any]:
@@ -222,15 +258,14 @@ def spelling_item(item: Dict[str, Any], position: int, total: int = 20) -> Dict[
         str(item.get("meaning_zh", "") or item.get("definition_en", "")),
         str(item.get("pos", "") or ""),
     )
-    first = word[:1].upper() if word else "?"
-    prompt = "第 %d/%d 题\n词性：%s\n中文：%s\n首字母：%s（%d 个字母）\n请拼写英文单词：" % (
-        position, total, pos or "-", meaning or "-", first, len(word)
+    prompt = "第 %d/%d 题\n词性：%s\n中文：%s\n%d 个字母\n请拼写英文单词：" % (
+        position, total, pos or "-", meaning or "-", len(word)
     )
     return {
         "kind": "spelling",
         "word_id": int(item["id"]),
         "prompt": prompt,
         "expected": word,
-        "hint": "首字母 %s，共 %d 个字母" % (first, len(word)),
+        "hint": "共 %d 个字母" % len(word),
         "source": str(item.get("role", "")),
     }
