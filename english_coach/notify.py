@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +37,8 @@ class Notifier:
         self.chat_id = settings.telegram_chat_id
         self.voice = "en-US-AriaNeural"
         self.rate = os.environ.get("ENGLISH_TTS_RATE", "-30%")
+        # 直传若走不通（当前网络上传 body 必超时），尽快失败并改走 URL 发送
+        self.upload_timeout = float(os.environ.get("ENGLISH_TTS_UPLOAD_TIMEOUT", "25"))
         proxy = os.environ.get("TELEGRAM_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         self.proxies = {"http": proxy, "https": proxy} if proxy else None
 
@@ -76,12 +79,55 @@ class Notifier:
                     self._api("sendAudio"),
                     data={"chat_id": self.chat_id, "caption": caption[:900], "title": caption[:60]},
                     files={"audio": (path.name, fh, "audio/mpeg")},
-                    timeout=60,
+                    timeout=self.upload_timeout,
                     proxies=self.proxies,
                 )
+            if resp.status_code < 400:
+                return True
+        except Exception:
+            pass
+        # 上传通道经常被墙成 504：退回“发布到 GitHub Pages 仓库，再让 Telegram 按 URL 抓取”。
+        url = self.publish_audio(path)
+        if not url:
+            return False
+        try:
+            resp = requests.post(
+                self._api("sendAudio"),
+                data={"chat_id": self.chat_id, "audio": url, "caption": caption[:900], "title": caption[:60]},
+                timeout=90,
+                proxies=self.proxies,
+            )
             return resp.status_code < 400
         except Exception:
             return False
+
+    def publish_audio(self, path: Path) -> Optional[str]:
+        """把音频复制进仓库的 docs/audio 并推送，返回 raw.githubusercontent 直链。
+
+        Telegram 的上传接口在当前网络下会超时（上传 body 走不通），但按 URL 发音频可用。
+        """
+        remote = os.environ.get("ENGLISH_GITHUB_REMOTE", "").strip()
+        if not (remote.startswith("https://github.com/") and remote.endswith(".git")):
+            return None
+        slug = remote[len("https://github.com/"):-4]
+        dest = self.settings.repo / "docs" / "audio" / path.name
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists() or dest.stat().st_size != path.stat().st_size:
+                shutil.copy(path, dest)
+            from .github_sync import sync_repo
+            sync_repo(self.settings, "audio: %s" % path.stem, push=True)
+        except Exception:
+            return None
+        url = "https://raw.githubusercontent.com/%s/main/docs/audio/%s" % (slug, path.name)
+        for _ in range(4):
+            try:
+                if requests.head(url, timeout=15, proxies=self.proxies).status_code == 200:
+                    return url
+            except Exception:
+                pass
+            time.sleep(2)
+        return None
 
     def synthesize(self, text: str, voice: Optional[str] = None) -> Optional[Path]:
         text = (text or "").strip()
