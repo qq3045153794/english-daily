@@ -88,6 +88,110 @@ class CoreTests(unittest.TestCase):
         # 数量对不上时空格不拆，保留原有分隔符行为
         self.assertEqual(_parse_answers("look up", 3), ["look up"])
 
+    def test_normalize_chinese(self):
+        from english_coach.config import normalize_chinese
+        self.assertEqual(normalize_chinese("他决定推迟会议，直到下周。"), "他决定推迟会议直到下周")
+        self.assertEqual(normalize_chinese("  参考译文：OK!  "), "参考译文ok")
+
+    def test_translation_grading(self):
+        from english_coach.quiz import evaluate_translation
+        ref = "他决定把会议推迟到下周。"
+
+        # 完全一致
+        ok, score, mode, _ = evaluate_translation("He put off the meeting.", ref, ref)
+        self.assertTrue(ok)
+        self.assertEqual((score, mode), (1.0, "exact"))
+
+        # LLM 判分：意思到位但措辞不同
+        ok, score, mode, comment = evaluate_translation(
+            "He put off the meeting.", ref, "他把会议推迟到了下个星期。",
+            judge=lambda en, zh, ans: {"score": 92, "comment": "译文准确"},
+        )
+        self.assertTrue(ok)
+        self.assertEqual((score, mode, comment), (1.0, "ok", "译文准确"))
+
+        # LLM 判分：漏了关键信息
+        ok, score, mode, _ = evaluate_translation(
+            "He put off the meeting.", ref, "他取消了会议。",
+            judge=lambda en, zh, ans: {"score": 55, "comment": "把推迟译成了取消"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual((score, mode), (0.5, "partial"))
+
+        # LLM 挂了要退回相似度，不能把正确译文判错
+        ok, score, mode, _ = evaluate_translation(
+            "He put off the meeting.", ref, ref,
+            judge=lambda en, zh, ans: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        self.assertTrue(ok)
+
+        # 空答案
+        ok, score, mode, _ = evaluate_translation("He put off the meeting.", ref, "   ")
+        self.assertEqual((ok, score, mode), (False, 0.0, "empty"))
+
+    def test_blueprint_tail_is_one_dictation_and_three_translations(self):
+        from english_coach.lesson import build_blueprint
+        cards = []
+        for i in range(5):
+            cards.append({
+                "word": "word%d" % i,
+                "word_id": i + 1,
+                "pos": "n.",
+                "meaning_zh": "释义%d" % i,
+                "example": "Example sentence number %d about word%d." % (i, i),
+                "example_type": "declarative" if i % 2 else "wh",
+                "example_zh": "第%d个例句的中文翻译。" % i,
+            })
+        data = {
+            "dictation_extra": [
+                {"sentence": "Extra sentence one uses several words.", "translation_zh": "补充句一的中文翻译。"},
+                {"sentence": "Extra sentence two uses several words.", "translation_zh": "补充句二的中文翻译。"},
+            ]
+        }
+        bp = build_blueprint(self.db, cards, data, spelling_count=5, dictation_count=1, translation_count=3)
+        self.assertEqual(len(bp["dictation"]), 1)
+        self.assertEqual(len(bp["translation"]), 3)
+        # 听写题不重复出现在翻译题里
+        dict_sentences = {x["expected"].lower() for x in bp["dictation"]}
+        for item in bp["translation"]:
+            self.assertEqual(item["kind"], "translation")
+            self.assertNotIn(item["english"].lower(), dict_sentences)
+            self.assertIn(item["english"], item["prompt"])
+            self.assertIn("翻译成中文", item["prompt"])
+            self.assertTrue(item["expected"])
+        # 译文必须来自课文，而不是空
+        zh_pool = {c["example_zh"] for c in cards} | {"补充句一的中文翻译。", "补充句二的中文翻译。"}
+        for item in bp["translation"]:
+            self.assertIn(item["expected"], zh_pool)
+
+    def test_translation_item_is_delivered_alone(self):
+        from english_coach.quiz import _batch_text, _pending_batch
+        items = [
+            {"kind": "spelling", "word_id": 1, "prompt": "拼写题", "expected": "abandon", "hint": "", "source": "new"},
+            {"kind": "dictation", "word_id": None, "prompt": "听写题", "expected": "I am here.", "hint": "", "source": "new"},
+            {"kind": "translation", "word_id": None, "prompt": "第 1/3 题：请把下面的英文翻译成中文。\n\nI am here.", "expected": "我在这里。", "english": "I am here.", "hint": "", "source": "new"},
+            {"kind": "translation", "word_id": None, "prompt": "第 2/3 题：请把下面的英文翻译成中文。\n\nYou are there.", "expected": "你在那里。", "english": "You are there.", "hint": "", "source": "new"},
+        ]
+        session_id = self.db.create_session(1, items)
+        session = self.db.active_session()
+        self.assertEqual(int(session["id"]), session_id)
+        batch = _pending_batch(self.db, session, 5)
+        self.assertEqual(len(batch), 1)
+        # 逐题推进到第一道翻译
+        self.db.advance_session(session_id, 0.0, steps=2)
+        session = self.db.active_session()
+        batch = _pending_batch(self.db, session, 5)
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(batch[0]["kind"], "translation")
+        self.assertEqual(batch[0]["english"], "I am here.")
+        text = _batch_text(SimpleNamespace(), batch, SimpleNamespace())
+        self.assertIn("I am here.", text)
+        self.assertNotIn("请依次拼写", text)
+        # 推进后下一道翻译同样是单题
+        self.db.advance_session(session_id, 0.0, steps=1)
+        batch = _pending_batch(self.db, self.db.active_session(), 5)
+        self.assertEqual(batch[0]["english"], "You are there.")
+
     def test_stats(self):
         today = date.today()
         self.db.set_setting("start_date", (today - timedelta(days=2)).isoformat())

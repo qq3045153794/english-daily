@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS quiz_items (
     word_id INTEGER,
     prompt TEXT NOT NULL,
     expected TEXT NOT NULL,
+    english TEXT DEFAULT '',
     hint TEXT DEFAULT '',
     source TEXT DEFAULT '',
     user_answer TEXT,
@@ -114,7 +115,8 @@ DEFAULTS = {
     "daily_new_words": "10",
     "daily_review_words": "5",
     "quiz_spelling_count": "20",
-    "quiz_dictation_count": "4",
+    "quiz_dictation_count": "1",
+    "quiz_translation_count": "3",
     "push_time": "20:30",
     "prepare_time": "19:40",
     "telegram_chat_id": "8425641024",
@@ -140,6 +142,10 @@ class Database:
     def init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            # 旧库补列：英译中题需要保存英文原句
+            cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(quiz_items)")}
+            if "english" not in cols:
+                conn.execute("ALTER TABLE quiz_items ADD COLUMN english TEXT DEFAULT ''")
             for key, value in DEFAULTS.items():
                 conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES(?, ?)", (key, value))
             row = conn.execute("SELECT value FROM settings WHERE key='start_date'").fetchone()
@@ -410,8 +416,8 @@ class Database:
             session_id = int(cur.lastrowid)
             for i, item in enumerate(items):
                 conn.execute(
-                    """INSERT INTO quiz_items(session_id, position, kind, word_id, prompt, expected, hint, source)
-                       VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO quiz_items(session_id, position, kind, word_id, prompt, expected, english, hint, source)
+                       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         session_id,
                         i,
@@ -419,6 +425,7 @@ class Database:
                         item.get("word_id"),
                         str(item.get("prompt", "")),
                         str(item.get("expected", "")),
+                        str(item.get("english", "") or ""),
                         str(item.get("hint", "")),
                         str(item.get("source", "")),
                     ),

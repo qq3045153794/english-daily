@@ -123,3 +123,24 @@ Requirements:
 
 def repair_prompt(original: str, errors: List[str]) -> str:
     return original + "\n\nYour previous response failed validation:\n- " + "\n- ".join(errors) + "\nReturn the corrected complete JSON object only."
+
+
+def translation_judge_prompt(english: str, reference_zh: str, answer: str) -> str:
+    return """You are grading a Chinese learner's English-to-Chinese translation.
+
+English sentence: %s
+
+Reference Chinese translation: %s
+
+Learner's translation: %s
+
+Grade ONLY whether the meaning is conveyed. Ignore punctuation, Traditional/Simplified script, word order, and whether the Chinese sounds literary. Mark down when the learner:
+- omits key information (subject, action, time, quantity, negation, condition)
+- mistranslates the meaning (wrong subject/object, opposite meaning, wrong word sense)
+- leaves the English untranslated or only copies it
+
+Scoring: 90-100 = meaning fully correct (wording may differ); 70-89 = correct core meaning with a minor omission or slight inaccuracy; 40-69 = partially right but a key element is missing or wrong; 0-39 = mostly wrong or unrelated.
+
+Return JSON only:
+{"score": 0-100 integer, "verdict": "correct|partial|wrong", "comment": "one short Chinese sentence naming what is missing or wrong, or praising an accurate paraphrase", "missing": ["关键信息点未译出"]}
+""" % (english, reference_zh, answer)

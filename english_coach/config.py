@@ -70,6 +70,13 @@ def normalize_sentence(text: str) -> str:
     return text.strip()
 
 
+def normalize_chinese(text: str) -> str:
+    """中文译文标准化：只留汉字与英文数字，去掉标点、空白、全角符号。"""
+    text = (text or "").lower()
+    text = re.sub(r"[^\u4e00-\u9fff\u3400-\u4dbfa-z0-9]+", "", text)
+    return text.strip()
+
+
 def clean_line(text: str, limit: int = 240) -> str:
     text = (text or "").replace("\r", " ").replace("\n", "；").strip()
     # 词库里存在字面量 \n（反斜杠 + n），先还原再按分隔符处理

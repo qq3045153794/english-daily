@@ -94,7 +94,7 @@ def _merge_cards(selected: List[Dict[str, Any]], data: Dict[str, Any]) -> List[D
     return out
 
 
-def _dictation_from_lesson(cards: List[Dict[str, Any]], extra: List[Dict[str, Any]], count: int = 4) -> List[Dict[str, Any]]:
+def _dictation_from_lesson(cards: List[Dict[str, Any]], extra: List[Dict[str, Any]], count: int = 1) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     used = set()
     # Prefer two lesson examples with different sentence types.
@@ -147,7 +147,62 @@ def _dictation_from_lesson(cards: List[Dict[str, Any]], extra: List[Dict[str, An
     return out[:count]
 
 
-def build_blueprint(db: Database, cards: List[Dict[str, Any]], data: Dict[str, Any], spelling_count: int, dictation_count: int) -> Dict[str, Any]:
+def _translation_from_lesson(
+    cards: List[Dict[str, Any]],
+    extra: List[Dict[str, Any]],
+    count: int = 3,
+    exclude: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """英译中：先用户型更完整的课外语料（dictation_extra），再用课文例句。
+
+    译文取自课文自带的 example_zh / translation_zh（LLM 已生成），
+    不在这里翻译，避免二次生成出偏差。
+    """
+    used = {str(x).strip().lower() for x in (exclude or []) if str(x).strip()}
+    pool: List[Dict[str, Any]] = []
+    for item in extra or []:
+        ex = clean_line(str(item.get("sentence", "")), 260)
+        zh = clean_line(str(item.get("translation_zh", "")), 200)
+        if ex and zh and ex.lower() not in used:
+            pool.append({"en": ex, "zh": zh, "word_id": None, "source": "new"})
+            used.add(ex.lower())
+    for card in cards:
+        ex = clean_line(str(card.get("example", "")), 260)
+        zh = clean_line(str(card.get("example_zh", "")), 200)
+        if ex and zh and ex.lower() not in used:
+            pool.append({
+                "en": ex,
+                "zh": zh,
+                "word_id": None,
+                "source": "lesson",
+                "word": str(card.get("word", "")),
+            })
+            used.add(ex.lower())
+
+    out: List[Dict[str, Any]] = []
+    for item in pool:
+        if len(out) >= count:
+            break
+        out.append({
+            "kind": "translation",
+            "word_id": item["word_id"],
+            "expected": item["zh"],
+            "english": item["en"],
+            "hint": "",
+            "source": item["source"],
+            "prompt": "",
+        })
+    return out[:count]
+
+
+def build_blueprint(
+    db: Database,
+    cards: List[Dict[str, Any]],
+    data: Dict[str, Any],
+    spelling_count: int,
+    dictation_count: int,
+    translation_count: int = 3,
+) -> Dict[str, Any]:
     lesson_like = []
     for card in cards:
         lesson_like.append({
@@ -168,7 +223,17 @@ def build_blueprint(db: Database, cards: List[Dict[str, Any]], data: Dict[str, A
     dictation = _dictation_from_lesson(cards, data.get("dictation_extra", []), dictation_count)
     for pos, item in enumerate(dictation, 1):
         item["prompt"] = "第 %d/%d 句：请听写下面的英文句子。" % (pos, dictation_count)
-    return {"spelling": spelling, "dictation": dictation}
+    translation = _translation_from_lesson(
+        cards,
+        data.get("dictation_extra", []),
+        translation_count,
+        exclude=[str(x.get("expected", "")) for x in dictation],
+    )
+    for pos, item in enumerate(translation, 1):
+        item["prompt"] = "第 %d/%d 题：请把下面的英文翻译成中文。\n\n%s" % (
+            pos, translation_count, item["english"]
+        )
+    return {"spelling": spelling, "dictation": dictation, "translation": translation}
 
 
 def _bold_words(text: str, words: List[str]) -> str:
@@ -180,7 +245,7 @@ def _bold_words(text: str, words: List[str]) -> str:
     return text
 
 
-def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[str, Any], stats: Dict[str, Any]) -> str:
+def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[str, Any], stats: Dict[str, Any], quiz: Optional[Dict[str, Any]] = None) -> str:
     reading = data.get("reading", {}) if isinstance(data.get("reading"), dict) else {}
     words = [c["word"] for c in cards]
     lines = [
@@ -237,13 +302,18 @@ def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[st
                 lines.append("%d. %s" % (i, q.get("answer", "")))
         lines.extend(["", "</details>", ""])
 
+    quiz = quiz or {}
+    n_spelling = len(quiz.get("spelling", []) or []) or 20
+    n_dictation = len(quiz.get("dictation", []) or []) or 1
+    n_translation = len(quiz.get("translation", []) or []) or 3
     lines.extend([
         "## 打卡",
         "",
         "在 Telegram 回复 **打卡**。打卡后立即开始：",
         "",
-        "- 20 题中文提示拼写",
-        "- 4 句英文听写",
+        "- %d 题中文提示拼写" % n_spelling,
+        "- %d 句英文听写" % n_dictation,
+        "- %d 题英译中" % n_translation,
         "",
         "> 当前连续打卡：%d 天 · 累计：%d 天" % (stats.get("streak", 0), stats.get("total_checkins", 0)),
         "",
@@ -304,8 +374,9 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
 
     cards = _merge_cards(selected, data)
     spelling_count = int(db.setting("quiz_spelling_count", "20"))
-    dictation_count = int(db.setting("quiz_dictation_count", "4"))
-    blueprint = build_blueprint(db, cards, data, spelling_count, dictation_count)
+    dictation_count = int(db.setting("quiz_dictation_count", "1"))
+    translation_count = int(db.setting("quiz_translation_count", "3"))
+    blueprint = build_blueprint(db, cards, data, spelling_count, dictation_count, translation_count)
     payload = {
         "date": day,
         "generated_at": iso_now(),
@@ -322,7 +393,7 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
 
     from .stats import calculate_stats
     stats = calculate_stats(db)
-    md = render_markdown(day, cards, data, stats)
+    md = render_markdown(day, cards, data, stats, quiz=blueprint)
     md_path = settings.md_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")
@@ -392,7 +463,7 @@ def rerender_lesson(settings: Settings, db: Database, day: Optional[str] = None,
     cards = payload.get("words", [])
     from .stats import calculate_stats
     stats = calculate_stats(db)
-    md = render_markdown(day, cards, payload, stats)
+    md = render_markdown(day, cards, payload, stats, quiz=payload.get("quiz_blueprint", {}))
     md_path = settings.md_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")

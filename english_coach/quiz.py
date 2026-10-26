@@ -4,7 +4,7 @@ import difflib
 import re
 from typing import Any, List, Optional, Tuple
 
-from .config import Settings, date_str, normalize_answer, normalize_sentence
+from .config import Settings, date_str, normalize_answer, normalize_chinese, normalize_sentence
 from .db import Database
 from .lesson import load_private_lesson
 from .notify import Notifier
@@ -50,11 +50,69 @@ def evaluate_dictation(expected: str, answer: str) -> Tuple[bool, float, List[st
     return ratio >= 0.9, round(float(ratio), 3), exp_tokens, got_tokens
 
 
+def evaluate_translation(
+    english: str,
+    reference_zh: str,
+    answer: str,
+    judge: Optional[Any] = None,
+) -> Tuple[bool, float, str, str]:
+    """英译中判分：优先让 LLM 判"意思对不对"，失败时退回汉字相似度。
+
+    返回 (correct, score, mode, comment)。mode: exact / ok / partial / wrong / empty。
+    """
+    got = normalize_chinese(answer)
+    ref = normalize_chinese(reference_zh)
+    if not got:
+        return False, 0.0, "empty", ""
+    if ref and got == ref:
+        return True, 1.0, "exact", ""
+
+    comment = ""
+    if judge is not None:
+        try:
+            data = judge(english, reference_zh, answer)
+            score = max(0, min(100, int(round(float(data.get("score", 0))))))
+            comment = str(data.get("comment", "") or "").strip()[:160]
+            if score >= 80:
+                return True, 1.0, "ok", comment
+            if score >= 50:
+                return False, 0.5, "partial", comment
+            return False, 0.0, "wrong", comment
+        except Exception:
+            comment = ""
+
+    # 回退：按汉字重合度估算，只做粗判（措辞差异大，阈值放低）
+    ratio = difflib.SequenceMatcher(None, ref, got).ratio() if ref else 0.0
+    if ratio >= 0.7:
+        return True, 1.0, "ok", comment
+    if ratio >= 0.45:
+        return False, 0.5, "partial", comment
+    return False, 0.0, "wrong", comment
+
+
+def translation_judge(settings: Settings, model: str = "") -> Any:
+    """构造 LLM 判分函数；未配置 API key 时返回 None（退回相似度判分）。"""
+    if not getattr(settings, "deepseek_key", ""):
+        return None
+    from .llm import DeepSeekClient, translation_judge_prompt
+
+    client = DeepSeekClient(
+        settings.deepseek_key,
+        base_url=settings.deepseek_base_url,
+        model=model or settings.deepseek_model,
+    )
+
+    def _judge(english: str, reference_zh: str, answer: str) -> Any:
+        return client.chat_json(translation_judge_prompt(english, reference_zh, answer), temperature=0.0, max_tokens=600)
+
+    return _judge
+
+
 def _item_text(settings: Settings, item: Any, notifier: Notifier) -> str:
     if item is None:
         return "当前没有待答题。"
     prompt = str(item["prompt"])
-    if item["kind"] == "spelling":
+    if item["kind"] != "dictation":
         return prompt
     sentence = str(item["expected"])
     audio = notifier.synthesize(sentence)
@@ -73,14 +131,14 @@ def _batch_size(db: Database) -> int:
 
 
 def _pending_batch(db: Database, session: Any, size: int) -> List[Any]:
-    """当前待答的一批题：拼写题按 size 批量，听写题单题。"""
+    """当前待答的一批题：拼写题按 size 批量，听写/翻译单题。"""
     session_id = int(session["id"])
     idx = int(session["current_index"])
     items = db.session_items(session_id)
     remaining = items[idx:]
     if not remaining:
         return []
-    if remaining[0]["kind"] == "dictation":
+    if remaining[0]["kind"] != "spelling":
         return remaining[:1]
     batch = []
     for it in remaining:
@@ -96,7 +154,7 @@ def _batch_text(settings: Settings, batch: List[Any], notifier: Notifier) -> str
     """把一批题拼成一条消息。"""
     if not batch:
         return "当前没有待答题。"
-    if len(batch) == 1 and batch[0]["kind"] == "dictation":
+    if len(batch) == 1 and batch[0]["kind"] in ("dictation", "translation"):
         return _item_text(settings, batch[0], notifier)
     parts = [str(it["prompt"]) for it in batch]
     return "请依次拼写下列单词（每行一个答案，或用空格分隔）：\n\n" + "\n".join(parts)
@@ -120,7 +178,7 @@ def _start_if_needed(settings: Settings, db: Database, lesson: Any, notifier: No
         return active, _batch_text(settings, batch, notifier)
     payload = load_private_lesson(settings, str(lesson["lesson_date"]))
     bp = payload.get("quiz_blueprint", {})
-    items = list(bp.get("spelling", [])) + list(bp.get("dictation", []))
+    items = list(bp.get("spelling", [])) + list(bp.get("dictation", [])) + list(bp.get("translation", []))
     if not items:
         raise RuntimeError("lesson has no quiz blueprint")
     session_id = db.create_session(int(lesson["id"]), items)
@@ -180,12 +238,13 @@ def answer(settings: Settings, db: Database, text: str) -> str:
     if not batch:
         return "当前没有待答题。"
 
-    # 单题听写：整段文本即答案；批量拼写：按行/分隔符拆分。
-    if len(batch) == 1 and batch[0]["kind"] == "dictation":
+    # 单题听写/英译中：整段文本即答案；批量拼写：按行/分隔符拆分。
+    if len(batch) == 1 and batch[0]["kind"] in ("dictation", "translation"):
         answers = [text.strip()]
     else:
         answers = _parse_answers(text, len(batch))
 
+    judge = None
     feedbacks: List[str] = []
     total_earned = 0.0
     for i, item in enumerate(batch):
@@ -202,6 +261,27 @@ def answer(settings: Settings, db: Database, text: str) -> str:
                 feedbacks.append("🟡 差一点：你的答案 `%s`，正确拼写是 `%s`。" % (ans, expected))
             else:
                 feedbacks.append("❌ 正确答案：%s（你答：%s）" % (expected, ans or "空"))
+        elif item["kind"] == "translation":
+            if judge is None:
+                judge = translation_judge(settings, db.setting("model", settings.deepseek_model))
+            expected = str(item["expected"])
+            english = str(item["english"] or "")
+            correct, score, mode, comment = evaluate_translation(english, expected, ans, judge=judge)
+            db.answer_item(int(item["id"]), ans, correct, score)
+            if mode == "exact":
+                feedbacks.append("✅ 翻译正确。参考译文：%s" % expected)
+            elif mode == "ok":
+                feedbacks.append("✅ 翻译正确（意思到位）。参考译文：%s%s" % (
+                    expected, ("\n💬 " + comment) if comment else ""
+                ))
+            elif mode == "partial":
+                feedbacks.append("🟡 翻译部分正确。参考译文：%s%s" % (
+                    expected, ("\n💬 " + comment) if comment else ""
+                ))
+            else:
+                feedbacks.append("❌ 翻译不对。参考译文：%s%s" % (
+                    expected, ("\n💬 " + comment) if comment else ""
+                ))
         else:
             expected = str(item["expected"])
             correct, score, exp_tokens, got_tokens = evaluate_dictation(expected, ans)
@@ -246,16 +326,22 @@ def _finish_text(db: Database) -> str:
         ).fetchall()
     spelling = [x for x in items if x["kind"] == "spelling"]
     dictation = [x for x in items if x["kind"] == "dictation"]
+    translation = [x for x in items if x["kind"] == "translation"]
     sp_score = sum(float(x["score"] or 0) for x in spelling)
     di_score = sum(float(x["score"] or 0) for x in dictation)
+    tr_score = sum(float(x["score"] or 0) for x in translation)
     lines = [
         "🎉 训练完成",
         "拼写：%.1f/%d" % (sp_score, len(spelling)),
         "听写：%.1f/%d" % (di_score, len(dictation)),
-        "综合：%.1f/%d" % (sp_score + di_score, len(spelling) + len(dictation)),
+    ]
+    if translation:
+        lines.append("翻译：%.1f/%d" % (tr_score, len(translation)))
+    lines.extend([
+        "综合：%.1f/%d" % (sp_score + di_score + tr_score, len(spelling) + len(dictation) + len(translation)),
         "",
         stats_text(db),
-    ]
+    ])
     return "\n".join(lines)
 
 

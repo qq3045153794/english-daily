@@ -13,7 +13,7 @@ metadata:
 
 # English Coach
 
-Use this skill for the daily English lesson, Telegram check-in, spelling quiz, sentence dictation, pronunciation, and learning statistics.
+Use this skill for the daily English lesson, Telegram check-in, spelling quiz, sentence dictation, English→Chinese translation, pronunciation, and learning statistics.
 
 ## Canonical command
 
@@ -55,7 +55,7 @@ The CLI speaks dictation audio directly through Telegram. Its stdout is the exac
 
 ## Rules
 
-- Never reveal the expected spelling or dictation sentence before the user answers.
+- Never reveal the expected spelling, dictation sentence or reference translation before the user answers.
 - If the CLI prints `ERROR:`, tell the user that error plainly; do not invent a lesson or quiz.
 - If a lesson is missing, say it has not been generated and do not start a quiz.
 - Keep one quiz session. Do not create a second session when the user sends “打卡” twice.
