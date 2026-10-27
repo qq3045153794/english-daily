@@ -138,8 +138,11 @@ class Notifier:
         out = self.settings.tts_dir / ("%s.mp3" % digest)
         if out.exists() and out.stat().st_size > 100:
             return out
-        edge = shutil.which("edge-tts") or str(Path(sys.executable).parent / "edge-tts")
-        if not Path(edge).exists():
+        # 优先用当前解释器自带的 edge-tts：PATH 上可能有一个损坏的同名脚本
+        # （比如 Hermes install 的 venv 包装器），它会静默写出 0 字节 mp3。
+        venv_edge = Path(sys.executable).parent / "edge-tts"
+        edge = str(venv_edge) if venv_edge.exists() else (shutil.which("edge-tts") or "")
+        if not edge or not Path(edge).exists():
             return None
         try:
             subprocess.run(
