@@ -1,17 +1,17 @@
 {
   "start_date": "2026-10-20",
   "today": "2026-10-28",
-  "streak": 2,
-  "total_checkins": 5,
-  "expected_days": 8,
+  "streak": 3,
+  "total_checkins": 6,
+  "expected_days": 9,
   "missed_days": 3,
   "missed_dates": [
     "2026-10-23",
     "2026-10-24",
     "2026-10-25"
   ],
-  "checked_in_today": false,
-  "completion_rate": 62.5,
+  "checked_in_today": true,
+  "completion_rate": 66.7,
   "paused_dates": [],
   "calendar": [
     {
@@ -48,8 +48,8 @@
     },
     {
       "date": "2026-10-28",
-      "status": "today"
+      "status": "checked_in"
     }
   ],
-  "updated_at": "2026-10-28T10:00:40+08:00"
+  "updated_at": "2026-10-28T23:30:40+08:00"
 }
