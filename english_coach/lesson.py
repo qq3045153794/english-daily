@@ -214,7 +214,7 @@ def build_blueprint(
             "role": card.get("role", "new"),
             "difficulty": 0,
         })
-    # 拼写题：当天全部新词 + 复习词（错词优先）补足到 spelling_count。
+    # 拼写题：当天全部新词 + 到期待复习词补足到 spelling_count（未到期不提前抽）。
     quiz_words = select_quiz_words(db, lesson_like, spelling_count)
     spelling = []
     for pos, item in enumerate(quiz_words, 1):
@@ -373,7 +373,7 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
             data = data if isinstance(data.get("words"), list) else data2
 
     cards = _merge_cards(selected, data)
-    spelling_count = int(db.setting("quiz_spelling_count", "20"))
+    spelling_count = int(db.setting("quiz_spelling_count", "30"))
     dictation_count = int(db.setting("quiz_dictation_count", "1"))
     translation_count = int(db.setting("quiz_translation_count", "3"))
     blueprint = build_blueprint(db, cards, data, spelling_count, dictation_count, translation_count)

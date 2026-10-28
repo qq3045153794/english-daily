@@ -114,7 +114,7 @@ DEFAULTS = {
     "daily_total_words": "15",
     "daily_new_words": "10",
     "daily_review_words": "5",
-    "quiz_spelling_count": "20",
+    "quiz_spelling_count": "30",
     "quiz_dictation_count": "1",
     "quiz_translation_count": "3",
     "push_time": "20:30",
