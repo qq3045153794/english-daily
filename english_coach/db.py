@@ -243,17 +243,22 @@ class Database:
         if exclude:
             sql += " AND w.id NOT IN (%s)" % ",".join("?" for _ in exclude)
             params.extend(exclude)
-        sql += " ORDER BY s.wrong_count DESC, s.next_review_at ASC, w.difficulty ASC LIMIT ?"
+        # 到期池里最该先复习的是逾期最久的（遗忘风险最高）；错次只做同一天的次序。
+        # 若按 wrong_count 优先，历史错词会永久霸占复习位，从没错过但已逾期的词永远轮不到。
+        sql += " ORDER BY s.next_review_at ASC, s.wrong_count DESC, w.difficulty ASC LIMIT ?"
         params.append(int(limit))
         with self.connect() as conn:
             return list(conn.execute(sql, params).fetchall())
 
-    def error_words(self, limit: int, exclude_ids: Optional[Iterable[int]] = None) -> List[sqlite3.Row]:
+    def error_words(self, limit: int, exclude_ids: Optional[Iterable[int]] = None, due_only: bool = False) -> List[sqlite3.Row]:
         exclude = list(exclude_ids or [])
         sql = """SELECT w.*, s.status AS state_status, s.wrong_count, s.next_review_at
                  FROM words w JOIN word_state s ON s.word_id=w.id
                  WHERE s.wrong_count > 0"""
         params: List[Any] = []
+        if due_only:
+            sql += " AND s.next_review_at IS NOT NULL AND s.next_review_at <= ?"
+            params.append(iso_now())
         if exclude:
             sql += " AND w.id NOT IN (%s)" % ",".join("?" for _ in exclude)
             params.extend(exclude)

@@ -164,6 +164,32 @@ class CoreTests(unittest.TestCase):
         for item in bp["translation"]:
             self.assertIn(item["expected"], zh_pool)
 
+    def test_quiz_review_only_picks_due_words(self):
+        from english_coach.words import select_quiz_words
+        with self.db.connect() as conn:
+            words = [dict(r) for r in conn.execute("SELECT id, word FROM words ORDER BY id")]
+        lesson = [{"id": words[0]["id"], "word": words[0]["word"], "pos": "n.", "meaning_zh": "释义"}]
+        # 第 3、4 个词：错 3 次但没到期；第 5 个词：错 1 次，已逾期
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO word_state(word_id,status,wrong_count,correct_count,streak,ease,interval_days,next_review_at) VALUES(?,?,?,?,?,?,?,?)",
+                (words[2]["id"], "learning", 3, 0, 0, 2.3, 1, (date.today() + timedelta(days=10)).isoformat()),
+            )
+            conn.execute(
+                "INSERT INTO word_state(word_id,status,wrong_count,correct_count,streak,ease,interval_days,next_review_at) VALUES(?,?,?,?,?,?,?,?)",
+                (words[3]["id"], "learning", 3, 0, 0, 2.3, 1, (date.today() + timedelta(days=10)).isoformat()),
+            )
+            conn.execute(
+                "INSERT INTO word_state(word_id,status,wrong_count,correct_count,streak,ease,interval_days,next_review_at) VALUES(?,?,?,?,?,?,?,?)",
+                (words[4]["id"], "learning", 1, 0, 0, 2.3, 1, (date.today() - timedelta(days=1)).isoformat()),
+            )
+        picked = [x["word"] for x in select_quiz_words(self.db, lesson, count=5)]
+        self.assertIn(words[0]["word"], picked)
+        self.assertIn(words[4]["word"], picked)      # 到期错词要复习
+        self.assertNotIn(words[2]["word"], picked)   # 没到期不许提前抽
+        self.assertNotIn(words[3]["word"], picked)
+        self.assertEqual(len(picked), 2)             # 不拿未到期的词凑满 20
+
     def test_translation_item_is_delivered_alone(self):
         from english_coach.quiz import _batch_text, _pending_batch
         items = [
