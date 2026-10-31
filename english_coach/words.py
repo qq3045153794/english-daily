@@ -176,7 +176,7 @@ def select_quiz_words(db: Database, lesson_words: List[Dict[str, Any]], count: i
     selected: List[Dict[str, Any]] = list(today)
     used: set = {int(item["id"]) for item in selected}
 
-    # 只补 next_review_at <= 今天 的词，错词优先，其次按逾期时长。
+    # 只补 next_review_at <= 今天 的词：逾期最久优先，同一天的再按错次（见 db.due_words 排序）。
     # 提前复习（未到期）会把间隔压平，等于没有遗忘曲线——宁可当天少几题。
     remaining = count - len(selected)
     if remaining > 0:
