@@ -385,7 +385,11 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
         source = carry_over_source(db, day)
         if source is not None:
             prev_day = str(source["lesson_date"])
-            prev = load_private_lesson(settings, prev_day)
+            try:
+                prev = load_private_lesson(settings, prev_day)
+            except Exception as exc:  # JSON 丢了就别卡住定时任务，退回正常生成
+                db.log("carry_skip", "date=%s prev=%s error=%s" % (day, prev_day, exc))
+                prev = {}
             prev_cards = [dict(x) for x in (prev.get("words") or [])]
             if prev_cards:
                 cards = prev_cards
