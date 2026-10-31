@@ -117,6 +117,7 @@ DEFAULTS = {
     "quiz_spelling_count": "30",
     "quiz_dictation_count": "1",
     "quiz_translation_count": "3",
+    "carry_over_unchecked": "1",
     "push_time": "20:30",
     "prepare_time": "19:40",
     "telegram_chat_id": "8425641024",

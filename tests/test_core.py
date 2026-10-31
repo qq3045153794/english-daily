@@ -190,6 +190,59 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn(words[3]["word"], picked)
         self.assertEqual(len(picked), 2)             # 不拿未到期的词凑满 20
 
+    def test_carry_over_when_previous_lesson_unchecked(self):
+        import os
+        from unittest import mock
+        from english_coach import lesson as lesson_mod
+        from english_coach.config import Settings
+
+        with self.db.connect() as conn:
+            words = [dict(r) for r in conn.execute("SELECT id, word, pos, meaning_zh FROM words ORDER BY id")]
+        cards = []
+        for w in words:
+            cards.append({
+                "word_id": w["id"], "word": w["word"], "pos": w["pos"], "meaning_zh": w["meaning_zh"],
+                "ipa": "", "collocation": "-", "example": "Example with %s." % w["word"],
+                "example_zh": "例句。", "example_type": "declarative", "role": "new",
+            })
+        home = self.home / "ec"
+        (home / "lessons").mkdir(parents=True, exist_ok=True)
+        prev_day = "2026-10-02"
+        payload = {
+            "date": prev_day, "model": "test-model", "words": cards, "sentence_patterns": [],
+            "reading": {"title": "旧阅读"}, "dictation_extra": [],
+        }
+        (home / "lessons" / ("%s.json" % prev_day)).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        self.db.upsert_lesson(prev_day, str(home / "x.md"), str(home / "lessons" / ("%s.json" % prev_day)))
+
+        env = {
+            "ENGLISH_COACH_HOME": str(home),
+            "ENGLISH_COACH_PRIVATE_LESSONS": str(home / "lessons"),
+            "ENGLISH_COACH_REPO": str(home / "repo"),
+            "ENGLISH_COACH_PUBLIC_DIR": str(home / "repo" / "docs"),
+            "ENGLISH_COACH_DB": str(self.db.path),
+            "ENGLISH_COACH_TTS_DIR": str(home / "tts"),
+            "ENGLISH_COACH_CACHE": str(home / "cache"),
+        }
+        with mock.patch.dict(os.environ, env):
+            settings = Settings()
+            # 上一份课程没打卡 → 沿用，且不许调用模型
+            broken = mock.Mock(side_effect=AssertionError("carry-over must not call the LLM"))
+            with mock.patch.object(lesson_mod, "DeepSeekClient", broken):
+                out = lesson_mod.prepare_lesson(settings, self.db, day="2026-10-03", sync=False)
+            self.assertEqual(out["carried_from"], prev_day)
+            self.assertEqual([c["word"] for c in out["words"]], [c["word"] for c in cards])
+            md = (settings.md_dir / "2026-10-03.md").read_text(encoding="utf-8")
+            self.assertIn("沿用同一份内容", md)
+            self.assertIn("旧阅读", md)
+
+            # 打卡之后，下一天不再沿用
+            with self.db.connect() as conn:
+                conn.execute("UPDATE lessons SET checked_in_at=? WHERE lesson_date=?", ("2026-10-03T20:00:00+08:00", "2026-10-03"))
+            self.assertIsNone(lesson_mod.carry_over_source(self.db, "2026-10-04"))
+
+        self.assertIsNotNone(lesson_mod.carry_over_source(self.db, "2026-10-03"))
+
     def test_translation_item_is_delivered_alone(self):
         from english_coach.quiz import _batch_text, _pending_batch
         items = [

@@ -245,17 +245,24 @@ def _bold_words(text: str, words: List[str]) -> str:
     return text
 
 
-def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[str, Any], stats: Dict[str, Any], quiz: Optional[Dict[str, Any]] = None) -> str:
+def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[str, Any], stats: Dict[str, Any], quiz: Optional[Dict[str, Any]] = None, carried_from: str = "") -> str:
     reading = data.get("reading", {}) if isinstance(data.get("reading"), dict) else {}
     words = [c["word"] for c in cards]
     lines = [
         "# %s 英语学习" % lesson_date,
         "",
+    ]
+    if carried_from:
+        lines.extend([
+            "> ⚠️ **%s 的课程还没打卡，今天沿用同一份内容，不生成新词。** 打完卡后第二天再继续新词。" % carried_from,
+            "",
+        ])
+    lines.extend([
         "> 今日 **%d** 词 · 阅读约 20 分钟 · 学习完成后在 Telegram 回复 **打卡**，训练会立即开始。" % len(cards),
         "",
         "## 今日单词",
         "",
-    ]
+    ])
     for i, card in enumerate(cards, 1):
         ipa = card.get("ipa") or ""
         ipa_text = " /%s/" % ipa.strip("/") if ipa else ""
@@ -321,6 +328,21 @@ def render_markdown(lesson_date: str, cards: List[Dict[str, Any]], data: Dict[st
     return "\n".join(lines)
 
 
+def carry_over_source(db: Database, day: str) -> Optional[Dict[str, Any]]:
+    """最近一份课程没打卡时返回它——今天沿用它，不再生成新词。
+
+    “缺一天打卡”就是上一份课程的 checked_in_at 为空：这时候发新课程只会把没学的词
+    叠上去，用户永远追不上，所以宁可同一天内容再用一次，等打卡后再继续新词。
+    """
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM lessons WHERE lesson_date < ? ORDER BY lesson_date DESC LIMIT 1", (day,)
+        ).fetchone()
+    if row is None or row["checked_in_at"]:
+        return None
+    return row
+
+
 def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, force: bool = False, sync: bool = True) -> Dict[str, Any]:
     settings.ensure_dirs()
     day = day or date_str()
@@ -356,23 +378,55 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     if not selected:
         raise RuntimeError("word pool is empty; run import-words first")
 
-    client = DeepSeekClient(
-        settings.deepseek_key,
-        base_url=settings.deepseek_base_url,
-        model=db.setting("model", settings.deepseek_model) or settings.deepseek_model,
-    )
-    prompt = lesson_prompt(selected, day)
-    data = client.chat_json(prompt)
-    errors = validate_content(data, selected)
-    if errors:
-        data2 = client.chat_json(repair_prompt(prompt, errors), temperature=0.3)
-        if not validate_content(data2, selected):
-            data = data2
-        else:
-            # Keep the first response but repair missing cards with dictionary fallbacks.
-            data = data if isinstance(data.get("words"), list) else data2
+    # 上一份课程还没打卡：今天沿用同一份内容（不生成新词、不调模型）。
+    carried_from: Optional[str] = None
+    model_name = ""
+    if not force and str(db.setting("carry_over_unchecked", "1")) == "1":
+        source = carry_over_source(db, day)
+        if source is not None:
+            prev_day = str(source["lesson_date"])
+            prev = load_private_lesson(settings, prev_day)
+            prev_cards = [dict(x) for x in (prev.get("words") or [])]
+            if prev_cards:
+                cards = prev_cards
+                data = {
+                    "words": prev_cards,
+                    "sentence_patterns": prev.get("sentence_patterns", []),
+                    "reading": prev.get("reading", {}),
+                    "dictation_extra": prev.get("dictation_extra", []),
+                }
+                selected = []
+                for card in prev_cards:
+                    row = db.word_by_id(int(card.get("word_id")))
+                    if row is None:
+                        continue
+                    item = row_dict(row)
+                    item["role"] = str(card.get("role", "new"))
+                    selected.append(item)
+                if not selected:
+                    raise RuntimeError("carry-over lesson has no usable words: %s" % prev_day)
+                model_name = str(prev.get("model") or "")
+                carried_from = prev_day
 
-    cards = _merge_cards(selected, data)
+    if carried_from is None:
+        client = DeepSeekClient(
+            settings.deepseek_key,
+            base_url=settings.deepseek_base_url,
+            model=db.setting("model", settings.deepseek_model) or settings.deepseek_model,
+        )
+        prompt = lesson_prompt(selected, day)
+        data = client.chat_json(prompt)
+        errors = validate_content(data, selected)
+        if errors:
+            data2 = client.chat_json(repair_prompt(prompt, errors), temperature=0.3)
+            if not validate_content(data2, selected):
+                data = data2
+            else:
+                # Keep the first response but repair missing cards with dictionary fallbacks.
+                data = data if isinstance(data.get("words"), list) else data2
+
+        cards = _merge_cards(selected, data)
+        model_name = client.model
     spelling_count = int(db.setting("quiz_spelling_count", "30"))
     dictation_count = int(db.setting("quiz_dictation_count", "1"))
     translation_count = int(db.setting("quiz_translation_count", "3"))
@@ -380,7 +434,8 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     payload = {
         "date": day,
         "generated_at": iso_now(),
-        "model": client.model,
+        "model": model_name,
+        "carried_from": carried_from,
         "words": cards,
         "sentence_patterns": data.get("sentence_patterns", []),
         "reading": data.get("reading", {}),
@@ -393,7 +448,7 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
 
     from .stats import calculate_stats
     stats = calculate_stats(db)
-    md = render_markdown(day, cards, data, stats, quiz=blueprint)
+    md = render_markdown(day, cards, data, stats, quiz=blueprint, carried_from=carried_from or "")
     md_path = settings.md_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")
@@ -403,9 +458,13 @@ def prepare_lesson(settings: Settings, db: Database, day: Optional[str] = None, 
     lesson_id = db.upsert_lesson(day, str(md_path), str(private_path), status="prepared")
     db.replace_lesson_words(lesson_id, selected)
     new_ids = [int(x["id"]) for x in selected if x.get("role") == "new"]
-    db.mark_learning(new_ids, add_days(day, 1))
+    if carried_from is None:
+        db.mark_learning(new_ids, add_days(day, 1))
     render_index(db, settings)
-    db.log("prepare_lesson", "date=%s words=%s" % (day, len(cards)))
+    if carried_from:
+        db.log("prepare_carry", "date=%s from=%s words=%s" % (day, carried_from, len(cards)))
+    else:
+        db.log("prepare_lesson", "date=%s words=%s" % (day, len(cards)))
     if sync:
         try:
             from .github_sync import sync_repo
@@ -463,7 +522,7 @@ def rerender_lesson(settings: Settings, db: Database, day: Optional[str] = None,
     cards = payload.get("words", [])
     from .stats import calculate_stats
     stats = calculate_stats(db)
-    md = render_markdown(day, cards, payload, stats, quiz=payload.get("quiz_blueprint", {}))
+    md = render_markdown(day, cards, payload, stats, quiz=payload.get("quiz_blueprint", {}), carried_from=str(payload.get("carried_from") or ""))
     md_path = settings.md_dir / ("%s.md" % day)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(md, encoding="utf-8")
@@ -495,6 +554,8 @@ def push_message(db: Database, settings: Settings, payload: Dict[str, Any]) -> s
         ),
         "阅读：%s" % (payload.get("reading", {}) or {}).get("title", "今日阅读"),
     ]
+    if payload.get("carried_from"):
+        lines.insert(1, "♻️ 上次（%s）还没打卡，今天沿用同一份课程，不生成新词。" % payload["carried_from"])
     if url:
         lines.append("👉 Pages：%s" % url)
     gh_url = github_lesson_url(db, day)
