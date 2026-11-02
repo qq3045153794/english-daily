@@ -144,9 +144,17 @@ class Notifier:
         edge = str(venv_edge) if venv_edge.exists() else (shutil.which("edge-tts") or "")
         if not edge or not Path(edge).exists():
             return None
+        # 本机 resolver 是死的（127.0.0.53 stub 无响应，MagicDNS 也报 DBus 错误），
+        # edge-tts 用 aiohttp 直连、不走环境变量里的代理，会直接 DNS 失败并留下 0 字节文件。
+        # 有代理就显式传给 edge-tts，让它自己远端解析域名。
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or ""
+        args = [edge, "--voice", voice, "--rate", self.rate]
+        if proxy:
+            args += ["--proxy", proxy]
+        args += ["--text", text, "--write-media", str(out)]
         try:
             subprocess.run(
-                [edge, "--voice", voice, "--rate", self.rate, "--text", text, "--write-media", str(out)],
+                args,
                 check=True,
                 timeout=90,
                 stdout=subprocess.DEVNULL,
