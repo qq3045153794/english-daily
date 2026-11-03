@@ -1,6 +1,6 @@
 {
   "start_date": "2026-10-20",
-  "today": "2026-11-02",
+  "today": "2026-11-03",
   "streak": 1,
   "total_checkins": 7,
   "expected_days": 14,
@@ -14,7 +14,7 @@
     "2026-10-31",
     "2026-11-01"
   ],
-  "checked_in_today": true,
+  "checked_in_today": false,
   "completion_rate": 50.0,
   "paused_dates": [],
   "calendar": [
@@ -73,7 +73,11 @@
     {
       "date": "2026-11-02",
       "status": "checked_in"
+    },
+    {
+      "date": "2026-11-03",
+      "status": "today"
     }
   ],
-  "updated_at": "2026-11-02T23:04:36+08:00"
+  "updated_at": "2026-11-03T09:31:05+08:00"
 }
